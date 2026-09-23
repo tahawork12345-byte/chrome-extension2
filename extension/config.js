@@ -63,10 +63,17 @@ const ICONS = {
 };
 
 /* ---------- 3. WORKSPACES + CARD CONTENT ----------------------
-   Each workspace holds 4 compact cards, 3 shortcuts each.
+   These are the DEFAULTS, used the first time Atlas runs.
+
+   Once a user adds, renames, reorders or deletes a section or shortcut,
+   their own layout is saved to chrome.storage.local and used instead —
+   editing this list afterwards will not overwrite what they have saved.
+   (Clearing the saved layout via "Reset to defaults" brings these back.)
+
+   Each workspace holds a set of compact cards ("sections").
    A shortcut is simply:  { name, url, icon }
    "icon" is a key from the ICONS list above (or a direct path). */
-const WORKSPACES = [
+const DEFAULT_WORKSPACES = [
   {
     id: "personal",
     name: "Personal",

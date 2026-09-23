@@ -46,6 +46,64 @@
       <div class="peek-panel" id="peekPanel" hidden></div>
     </div>
 
+    <!-- SECTION / SHORTCUT CONTEXT MENU -->
+    <div class="ctx" id="ctxMenu" role="menu" hidden></div>
+
+    <!-- ADD / EDIT DIALOG -->
+    <div class="ed" id="editDialog" hidden>
+      <div class="ed-backdrop" id="editBackdrop"></div>
+      <div class="ed-panel" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+        <form id="editForm" autocomplete="off">
+          <div class="ed-head" id="editTitle">Edit</div>
+          <div class="ed-body" id="editFields"></div>
+          <p class="ed-error" id="editError" role="alert" hidden></p>
+          <div class="ed-foot">
+            <button type="button" class="ed-btn" id="editCancel">Cancel</button>
+            <button type="submit" class="ed-btn is-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- COMMAND CENTER -->
+    <div class="cc" id="cc" hidden>
+      <div class="cc-backdrop" id="ccBackdrop"></div>
+      <div
+        class="cc-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command Center"
+        id="ccPanel"
+      >
+        <div class="cc-field">
+          <span class="cc-glyph" aria-hidden="true">&#10022;</span>
+          <input
+            id="ccInput"
+            class="cc-input"
+            type="text"
+            placeholder="What do you want to do?"
+            aria-label="Search commands"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="ccList"
+            aria-autocomplete="list"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <kbd class="cc-esc" aria-hidden="true">Esc</kbd>
+        </div>
+        <div class="cc-results" id="ccResults">
+          <ul class="cc-list" id="ccList" role="listbox" aria-label="Commands"></ul>
+          <div class="cc-empty" id="ccEmpty" hidden>No commands found</div>
+        </div>
+        <div class="cc-foot">
+          <span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> Navigate</span>
+          <span><kbd>&#8629;</kbd> Open</span>
+          <span><kbd>Esc</kbd> Close</span>
+        </div>
+      </div>
+    </div>
+
     <!-- AI CHAT -->
     <div class="ai" id="ai">
       <button class="ai-bubble" id="aiToggle" aria-label="Open assistant">✦</button>
