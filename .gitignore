@@ -31,3 +31,8 @@ dist-ssr
 *.sln
 *.sw?
 extension/wallpapers/old.mp4 
+
+# secrets (API keys) — never commit
+.env
+.env.*
+!.env.example

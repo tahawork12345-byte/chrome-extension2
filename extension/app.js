@@ -30,7 +30,11 @@
 
   const $ = (id) => document.getElementById(id);
 
-  /* ================= CLOCK (12-hour) ===================================== */
+  /* appearance + widget settings (customize.js). Style is applied there;
+     this file only reads the settings that change behaviour. */
+  const AS = window.AtlasSettings;
+
+  /* ================= CLOCK (12- or 24-hour) ============================== */
   const timeEl = $("time");
   const meridiemEl = $("meridiem");
   const dateEl = $("date");
@@ -42,7 +46,8 @@
     let h = d.getHours();
     const m = String(d.getMinutes()).padStart(2, "0");
     const ap = h >= 12 ? "PM" : "AM";
-    h = h % 12 || 12;
+    const h24 = AS.get().widgets.clock.h24;
+    h = h24 ? String(h).padStart(2, "0") : h % 12 || 12;
     const next = `${h}:${m}`;
     if (animate && timeEl.textContent !== next) {
       timeEl.classList.remove("is-tick");
@@ -74,46 +79,125 @@
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncClockHeight);
   if (clockEl && typeof ResizeObserver !== "undefined") new ResizeObserver(syncClockHeight).observe(clockEl);
 
-  /* ================= WALLPAPER =========================================== */
+  /* ================= WALLPAPER ===========================================
+     The background is one of: a built-in live wallpaper, the user's own
+     uploaded image / video, a solid colour or a gradient (Customize >
+     Background). Videos crossfade between two layers; the image and colour
+     layers fade in above them. */
   const layers = [$("videoA"), $("videoB")];
+  const wpImage = $("wpImage");
+  const wpFill = $("wpFill");
   let front = 0;
   let currentWp = null;
+  let shownVideo = "";  // src the video layers are showing, "" when none
+  let upload = { id: 0, url: "", kind: "" }; // the uploaded file, as an object URL
+  let bgToken = 0;      // drops stale async loads when settings change fast
 
   function playSafe(v) {
     const p = v.play();
     if (p && p.catch) p.catch(() => {});
   }
 
-  function setWallpaper(id, instant = false) {
-    const wp = WALLPAPERS.find((w) => w.id === id) || WALLPAPERS[0];
-    if (currentWp === wp.id) return;
-    currentWp = wp.id;
+  function unloadVideo(v) {
+    v.pause();
+    v.removeAttribute("src");
+    v.load();
+  }
 
+  function showVideo(src, instant) {
+    if (shownVideo === src) return;
+    shownVideo = src;
     const showing = layers[front];
     const next = layers[1 - front];
 
-    if (instant || !showing.src) {
-      showing.src = wp.file;
+    if (instant || !showing.getAttribute("src")) {
+      showing.src = src;
       showing.classList.add("is-active");
       next.classList.remove("is-active");
       playSafe(showing);
     } else {
-      next.src = wp.file;
+      next.src = src;
       playSafe(next);
       next.classList.add("is-active");
       showing.classList.remove("is-active");
       setTimeout(() => {
-        if (!showing.classList.contains("is-active")) {
-          showing.pause();
-          showing.removeAttribute("src");
-          showing.load();
-        }
+        if (!showing.classList.contains("is-active")) unloadVideo(showing);
       }, 1000);
       front = 1 - front;
     }
-    renderWpMenu();
-    store.set({ wallpaper: wp.id });
   }
+
+  function hideVideo() {
+    if (!shownVideo) return;
+    shownVideo = "";
+    layers.forEach((v) => v.classList.remove("is-active"));
+    /* let the fade finish before dropping the frames */
+    setTimeout(() => {
+      if (!shownVideo) layers.forEach(unloadVideo);
+    }, 1000);
+  }
+
+  function builtInFile() {
+    const wp = WALLPAPERS.find((w) => w.id === currentWp) || WALLPAPERS[0];
+    return wp ? wp.file : "";
+  }
+
+  /* the uploaded file, read once per upload and kept as an object URL */
+  async function uploadedMedia(id) {
+    if (upload.id === id && upload.url) return upload;
+    const blob = await AS.media.get();
+    if (upload.url) URL.revokeObjectURL(upload.url);
+    upload = blob
+      ? { id, url: URL.createObjectURL(blob), kind: /^video\//.test(blob.type) ? "video" : "image" }
+      : { id: 0, url: "", kind: "" };
+    return upload;
+  }
+
+  /* bring the page background in line with the settings */
+  async function applyBackground(instant) {
+    const bg = AS.get().background;
+    const token = ++bgToken;
+    let video = "";
+    let image = "";
+    let fill = "";
+
+    if (bg.mode === "color") fill = bg.color;
+    else if (bg.mode === "gradient") fill = `linear-gradient(${bg.gradAngle}deg, ${bg.gradA}, ${bg.gradB})`;
+    else if (bg.mode === "upload" && bg.customId) {
+      const file = await uploadedMedia(bg.customId);
+      if (token !== bgToken) return;
+      if (file.kind === "video") video = file.url;
+      else if (file.kind === "image") image = file.url;
+    }
+    /* nothing else to show (or the upload went missing): the live wallpaper */
+    if (!video && !image && !fill) video = builtInFile();
+
+    if (fill) wpFill.style.background = fill;
+    wpFill.classList.toggle("is-active", !!fill);
+    if (image && wpImage.getAttribute("src") !== image) wpImage.src = image;
+    wpImage.classList.toggle("is-active", !!image);
+    if (video) showVideo(video, instant);
+    else hideVideo();
+
+    const rate = Math.min(2, Math.max(0.25, (bg.speed || 100) / 100));
+    layers.forEach((v) => {
+      v.defaultPlaybackRate = rate; // survives a src change
+      v.playbackRate = rate;
+    });
+    renderWpMenu();
+  }
+
+  /* pick a built-in wallpaper; also switches the background back to it */
+  function setWallpaper(id, instant = false) {
+    const wp = WALLPAPERS.find((w) => w.id === id) || WALLPAPERS[0];
+    if (!wp) return;
+    currentWp = wp.id;
+    store.set({ wallpaper: wp.id });
+    if (AS.get().background.mode !== "video") AS.set("background.mode", "video"); // re-applies via the listener
+    else applyBackground(instant);
+  }
+  AS.app.setWallpaper = (id) => setWallpaper(id);
+  AS.app.currentWallpaper = () => currentWp;
 
   /* step through the wallpaper list — used by the wallpaper commands so they
      share one implementation with the menu above */
@@ -127,16 +211,24 @@
   const wpMenu = $("wpMenu");
   function renderWpMenu() {
     wpMenu.innerHTML = "";
+    const live = AS.get().background.mode === "video";
     WALLPAPERS.forEach((w) => {
       const b = document.createElement("button");
       b.textContent = w.label;
-      if (w.id === currentWp) b.classList.add("is-on");
+      if (live && w.id === currentWp) b.classList.add("is-on");
       b.addEventListener("click", () => {
         setWallpaper(w.id);
         wpMenu.hidden = true;
       });
       wpMenu.appendChild(b);
     });
+    const more = document.createElement("button");
+    more.textContent = "Customize…";
+    more.addEventListener("click", () => {
+      wpMenu.hidden = true;
+      AS.open("background");
+    });
+    wpMenu.appendChild(more);
   }
   $("wpToggle").addEventListener("click", (e) => {
     e.stopPropagation();
@@ -345,6 +437,7 @@
     code: '<path d="m9 8-4 4 4 4M15 8l4 4-4 4"/>',
     music: '<path d="M9 17V6l10-2v11"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="15" r="2"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M6 18l1.4-1.4M16.6 7.4 18 6"/>',
+    palette: '<path d="M12 4a8 8 0 1 0 0 16c1 0 1.6-.7 1.6-1.5 0-.9-.9-1.4-.9-2.4 0-.9.7-1.6 1.6-1.6H16a4 4 0 0 0 4-4C20 6.9 16.4 4 12 4z"/><circle cx="7.8" cy="11.2" r=".9"/><circle cx="10.2" cy="7.9" r=".9"/><circle cx="14.2" cy="7.9" r=".9"/>',
   };
   const svgIcon = (key) =>
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -410,6 +503,15 @@
     gear.innerHTML = svgIcon("settings");
     gear.addEventListener("click", () => openCommandCenter());
     rail.appendChild(gear);
+
+    const paint = document.createElement("button");
+    paint.type = "button";
+    paint.className = "rail-btn";
+    paint.dataset.label = "Customize";
+    paint.setAttribute("aria-label", "Customize appearance");
+    paint.innerHTML = svgIcon("palette");
+    paint.addEventListener("click", () => (AS.isOpen() ? AS.close() : AS.open()));
+    rail.appendChild(paint);
   }
 
   function setLauncherOpen(open) {
@@ -1099,7 +1201,7 @@
     panel.innerHTML = "";
     if (!top.length) {
       const p = document.createElement("div");
-      p.style.cssText = "padding:8px 9px;font-size:12px;color:rgba(247,246,243,.48)";
+      p.style.cssText = "padding:8px 9px;font-size:12px;color:var(--ink-faint)";
       p.textContent = "Open a few shortcuts and they'll show up here.";
       panel.appendChild(p);
       return;
@@ -1120,65 +1222,203 @@
     panel.hidden = !panel.hidden;
   });
 
-  /* ================= SEARCH ============================================== */
+  /* ================= SEARCH ==============================================
+     The engine is picked in Customize > Widgets > Search bar. A custom URL
+     may mark the query with %s; otherwise the query is appended. */
+  function searchUrl(q) {
+    const url = AS.engine().url;
+    const term = encodeURIComponent(q);
+    return url.includes("%s") ? url.replace("%s", term) : url + term;
+  }
+  function syncSearchLabel() {
+    const label = "Search " + AS.engine().label;
+    $("q").placeholder = label + "...";
+    $("q").setAttribute("aria-label", label);
+  }
   $("search").addEventListener("submit", (e) => {
     e.preventDefault();
     const q = $("q").value.trim();
     if (!q) return;
-    window.location.href = SEARCH_URL + encodeURIComponent(q);
+    window.location.href = searchUrl(q);
   });
 
-  /* ================= AI CHAT ============================================= */
+  /* ================= AI CHAT =============================================
+     The panel talks to AI_CONFIG.endpoint (server/chat.js). While a reply is
+     on its way a "typing" bubble shows and the status reads Thinking…      */
   const aiPanel = $("aiPanel");
   const aiLog = $("aiLog");
+  const aiInput = $("aiInput");
+  const aiSend = $("aiSend");
+  const aiStatus = $("aiStatus");
+  const aiStatusText = $("aiStatusText");
   let aiSeeded = false;
+  let aiBusy = false;
+  let typingRow = null;
   const history = [];
 
-  function addMsg(text, who) {
+  aiPanel.insertAdjacentHTML("afterbegin", TRACE_SVG); // border light
+
+  const clockTime = () =>
+    new Date().toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: !AS.get().widgets.clock.h24,
+    });
+
+  function msgRow(who) {
+    const row = document.createElement("div");
+    row.className = "msg-row " + who;
+    if (who === "bot") {
+      const av = document.createElement("span");
+      av.className = "msg-av";
+      av.setAttribute("aria-hidden", "true");
+      av.textContent = "✦";
+      row.appendChild(av);
+    }
+    const col = document.createElement("div");
+    col.className = "msg-col";
+    row.appendChild(col);
+    return [row, col];
+  }
+
+  /* Gemini answers in light markdown. Render just **bold**, `code` and
+     bullet lines; everything is escaped first, so no HTML gets through. */
+  function formatReply(text) {
+    const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    return text
+      .split("\n")
+      .map((line) => {
+        const html = esc(line)
+          .replace(/^#{1,6}\s+(.*)$/, "<strong>$1</strong>")
+          .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+          .replace(/`([^`]+)`/g, "<code>$1</code>");
+        const bullet = html.match(/^\s*[*\-•]\s+(.*)$/);
+        return bullet ? '<span class="li">' + bullet[1] + "</span>" : html + "\n";
+      })
+      .join("")
+      .replace(/\n+$/, "");
+  }
+
+  function addMsg(text, who, isError) {
+    const [row, col] = msgRow(who);
     const d = document.createElement("div");
-    d.className = "msg " + who;
-    d.textContent = text;
-    aiLog.appendChild(d);
+    d.className = "msg " + who + (isError ? " is-error" : "");
+    if (who === "bot" && !isError) d.innerHTML = formatReply(text);
+    else d.textContent = text;
+    const t = document.createElement("span");
+    t.className = "msg-time";
+    t.textContent = clockTime();
+    col.append(d, t);
+    aiLog.appendChild(row);
     aiLog.scrollTop = aiLog.scrollHeight;
+  }
+
+  function setStatus(state) {
+    aiStatus.classList.toggle("is-busy", state === "busy");
+    aiStatus.classList.toggle("is-off", state === "off");
+    aiStatusText.textContent =
+      state === "busy" ? "Thinking…" : state === "off" ? "Not connected" : "Online";
+  }
+
+  function setBusy(on) {
+    aiBusy = on;
+    setStatus(on ? "busy" : AI_CONFIG.endpoint ? "on" : "off");
+    syncSend();
+    if (on) {
+      const [row, col] = msgRow("bot");
+      row.classList.add("is-typing");
+      const d = document.createElement("div");
+      d.className = "msg bot typing";
+      d.setAttribute("aria-label", "Atlas is typing");
+      d.innerHTML = "<i></i><i></i><i></i>";
+      col.appendChild(d);
+      aiLog.appendChild(row);
+      typingRow = row;
+      aiLog.scrollTop = aiLog.scrollHeight;
+    } else if (typingRow) {
+      typingRow.remove();
+      typingRow = null;
+    }
+  }
+
+  /* the box grows with what you type, up to a few lines */
+  function fitInput() {
+    aiInput.style.height = "auto";
+    aiInput.style.height = Math.min(aiInput.scrollHeight, 120) + "px";
+    aiInput.style.overflowY = aiInput.scrollHeight > 120 ? "auto" : "hidden";
+  }
+  function syncSend() {
+    aiSend.disabled = aiBusy || !aiInput.value.trim();
+  }
+  aiInput.addEventListener("input", () => { fitInput(); syncSend(); });
+  aiInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      $("aiForm").requestSubmit();
+    }
+  });
+
+  function greet() {
+    addMsg(AI_CONFIG.endpoint ? AI_CONFIG.greeting : AI_CONFIG.notConfigured, "bot");
   }
 
   function openAi() {
     aiPanel.hidden = false;
     if (!aiSeeded) {
       aiSeeded = true;
-      addMsg(AI_CONFIG.endpoint ? AI_CONFIG.greeting : AI_CONFIG.notConfigured, "bot");
+      setStatus(AI_CONFIG.endpoint ? "on" : "off");
+      greet();
     }
-    $("aiInput").focus();
+    syncSend();
+    aiInput.focus();
   }
   $("aiToggle").addEventListener("click", () => (aiPanel.hidden ? openAi() : (aiPanel.hidden = true)));
   $("aiClose").addEventListener("click", () => (aiPanel.hidden = true));
+  $("aiClear").addEventListener("click", () => {
+    if (aiBusy) return;
+    history.length = 0;
+    aiLog.textContent = "";
+    greet();
+    aiInput.focus();
+  });
 
   $("aiForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const input = $("aiInput");
-    const text = input.value.trim();
-    if (!text) return;
+    const text = aiInput.value.trim();
+    if (!text || aiBusy) return;
     addMsg(text, "me");
     history.push({ role: "user", content: text });
-    input.value = "";
-    // comit
+    aiInput.value = "";
+    fitInput();
     if (!AI_CONFIG.endpoint) {
-      addMsg(AI_CONFIG.notConfigured, "bot");
+      addMsg(AI_CONFIG.notConfigured, "bot", true);
+      syncSend();
       return;
     }
+    setBusy(true);
     try {
       const res = await fetch(AI_CONFIG.endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: history }),
       });
-      const data = await res.json();
-      const reply = data.reply || "No reply returned by the configured endpoint.";
-      history.push({ role: "assistant", content: reply });
-      addMsg(reply, "bot");
+      const data = await res.json().catch(() => ({}));
+      setBusy(false);
+      if (!res.ok || !data.reply) {
+        /* the failed question leaves the history, so it can simply be asked again */
+        history.pop();
+        addMsg("Assistant error: " + (data.error || "the server answered " + res.status), "bot", true);
+        return;
+      }
+      history.push({ role: "assistant", content: data.reply });
+      addMsg(data.reply, "bot");
     } catch (err) {
-      addMsg("Couldn't reach the assistant endpoint.", "bot");
+      setBusy(false);
+      setStatus("off");
+      history.pop();
+      addMsg("Couldn't reach the assistant server. Is it running? (npm run assistant)", "bot", true);
     }
+    aiInput.focus();
   });
 
   /* ================= COMMAND CENTER ======================================
@@ -1263,24 +1503,26 @@
   }
 
   function createSystemCommands() {
+    const engine = AS.engine().label;
     return [
       {
         id: "sys:search",
-        title: "Search Google",
+        title: "Search " + engine,
         description: "Search the web for your query",
         category: "Search",
-        keywords: ["search", "google", "web", "find", "query"],
+        keywords: ["search", "google", "web", "find", "query", engine.toLowerCase()],
         mark: "⌕",
         /* always reachable, even when nothing else matches */
         fallback: true,
         /* the title picks up whatever follows "search" as you type */
         dynamic: (query) => {
-          const term = stripLead(query, ["search google for", "search google", "search", "google"]);
-          return term ? { title: "Search Google for “" + term + "”", term } : null;
+          const e = engine.toLowerCase();
+          const term = stripLead(query, ["search " + e + " for", "search " + e, "search google for", "search google", "search", e, "google"]);
+          return term ? { title: "Search " + engine + " for “" + term + "”", term } : null;
         },
         run: (cmd) => {
           const term = (cmd && cmd.term) || "";
-          if (term) window.location.href = SEARCH_URL + encodeURIComponent(term);
+          if (term) window.location.href = searchUrl(term);
           else $("q").focus();
         },
       },
@@ -1292,6 +1534,24 @@
         keywords: ["ai", "atlas", "assistant", "ask", "chat", "help"],
         mark: "✦",
         run: () => openAi(),
+      },
+      {
+        id: "sys:customize",
+        title: "Customize",
+        description: "Colours, background, lighting and widgets",
+        category: "Atlas",
+        keywords: ["customize", "customise", "theme", "color", "colour", "appearance", "settings", "style", "layout", "hide", "show", "move"],
+        mark: "◐",
+        run: () => AS.open(),
+      },
+      {
+        id: "sys:background",
+        title: "Change Background",
+        description: "Live wallpaper, your own file, a colour or a gradient",
+        category: "Atlas",
+        keywords: ["background", "wallpaper", "image", "upload", "gradient", "color", "colour"],
+        mark: "▣",
+        run: () => AS.open("background"),
       },
     ];
   }
@@ -1737,7 +1997,8 @@
     const cityEl = $("weatherCity");
     const condEl = $("weatherCond");
     const cfg = typeof WEATHER_CONFIG !== "undefined" ? WEATHER_CONFIG : {};
-    const units = cfg.units === "fahrenheit" ? "fahrenheit" : "celsius";
+    /* chosen in Customize (seeded from config.js) */
+    const unitsNow = () => (AS.get().widgets.weather.units === "fahrenheit" ? "fahrenheit" : "celsius");
     const FRESH = 30 * 60 * 1000;
 
     const W_ICONS = {
@@ -1794,6 +2055,7 @@
 
     async function load(force) {
       if (!loc) return;
+      const units = unitsNow();
       const key = `${loc.lat.toFixed(2)},${loc.lon.toFixed(2)},${units}`;
       const cached = parse((await store.get(["weatherCache"])).weatherCache);
       const usable = cached && cached.key === key;
@@ -1889,7 +2151,7 @@
       });
     });
 
-    store.get(["weatherLoc"]).then(async (s) => {
+    Promise.all([store.get(["weatherLoc"]), AS.ready]).then(async ([s]) => {
       loc = parse(s.weatherLoc);
       if (loc && !(isFinite(loc.lat) && isFinite(loc.lon))) loc = null;
       const cfgCity = typeof cfg.city === "string" ? cfg.city.trim() : "";
@@ -1907,6 +2169,10 @@
     });
 
     setInterval(() => load(), FRESH);
+    /* the cache is keyed by units, so a switch refetches on its own */
+    AS.on((s, path) => {
+      if (path === "*" || path === "widgets.weather.units") load();
+    });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
   })();
 
@@ -1920,9 +2186,31 @@
   document.querySelector(".wallpaper").addEventListener("click", () => {
     if (launcherOpen) setLauncherOpen(false);
   });
+  /* right-click on the bare wallpaper opens Customize — the way back in
+     even when every widget has been hidden */
+  document.querySelector(".wallpaper").addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    AS.open();
+  });
+
+  /* ================= SETTINGS -> BEHAVIOUR ===============================
+     customize.js restyles the page itself; these are the settings that need
+     the app to act. "*" means many changed at once (preset, reset, import). */
+  AS.on((s, path) => {
+    const all = path === "*";
+    if (all || path.startsWith("background.")) applyBackground();
+    if (all || path.startsWith("widgets.clock.")) {
+      renderClock();
+      requestAnimationFrame(syncClockHeight); // after the new CSS lands
+    }
+    if (all || path.startsWith("widgets.search.")) syncSearchLabel();
+  });
 
   /* ================= BOOT ================================================ */
-  store.get(["wallpaper", "workspace", "usage", "launcherTabs", LAYOUT_KEY]).then((s) => {
+  Promise.all([
+    store.get(["wallpaper", "workspace", "usage", "launcherTabs", LAYOUT_KEY]),
+    AS.ready,
+  ]).then(([s]) => {
     /* the saved layout replaces the config.js defaults; a first launch, or
        anything unreadable, falls back to them */
     applyLayout(loadLayout(s[LAYOUT_KEY]));
@@ -1932,8 +2220,11 @@
     try { tabs = s.launcherTabs ? JSON.parse(s.launcherTabs) || {} : {}; } catch { tabs = {}; }
     renderRail();
     renderLauncher();
+    renderClock();
+    syncSearchLabel();
     syncClockHeight();
-    setWallpaper(s.wallpaper || WALLPAPERS[0].id, true);
+    currentWp = (WALLPAPERS.find((w) => w.id === s.wallpaper) || WALLPAPERS[0] || {}).id || null;
+    applyBackground(true);
     $("q").focus();
   });
 })();
