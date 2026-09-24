@@ -14,25 +14,84 @@
       <div class="wp-veil"></div>
     </div>
 
-    <!-- TOP LEFT: clock + workspaces -->
+    <!-- TOP LEFT: clock + weather -->
     <header class="clock">
-      <div class="clock-time"><span id="time">--:--</span><span class="meridiem" id="meridiem">AM</span></div>
-      <div class="clock-date" id="date"></div>
-      <nav class="strip" id="strip" aria-label="Workspaces"></nav>
+      <div class="clock-main">
+        <div class="clock-time"><span id="time">--:--</span><span class="meridiem" id="meridiem">AM</span></div>
+        <div class="clock-date" id="date"></div>
+      </div>
+      <button type="button" class="weather" id="weather" aria-label="Weather. Click to set your city">
+        <svg class="trace" aria-hidden="true"><rect class="trace-line" pathLength="100"/></svg>
+        <span class="weather-icon" id="weatherIcon" aria-hidden="true"></span>
+        <span class="weather-temp" id="weatherTemp">--&deg;</span>
+        <span class="weather-meta">
+          <span class="weather-city" id="weatherCity">Weather</span>
+          <span class="weather-cond" id="weatherCond">Locating&hellip;</span>
+        </span>
+      </button>
     </header>
 
-    <!-- LEFT + RIGHT FLOATING PANELS -->
-    <section class="dock dock-left" id="dockLeft"></section>
-    <section class="dock dock-right" id="dockRight"></section>
+    <!-- LEFT: workspace rail + launcher panel -->
+    <nav class="rail" id="rail" aria-label="Workspaces"></nav>
+    <section class="launcher" id="launcher" aria-label="Shortcuts">
+      <div class="launcher-body">
+        <svg class="trace" aria-hidden="true"><rect class="trace-line" pathLength="100"/></svg>
+        <div class="launcher-head">
+          <div class="launcher-tabs" id="launcherTabs" role="tablist" aria-label="Sections"></div>
+          <div class="launcher-tools" id="launcherTools"></div>
+        </div>
+        <div class="launcher-grid" id="launcherGrid"></div>
+        <div class="launcher-trash" id="launcherTrash" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6.5 7l1 12h9l1-12M10 11v5M14 11v5"/></svg>
+          <span>Drop here to remove</span>
+        </div>
+      </div>
+      <span class="orb orb-a" aria-hidden="true"></span>
+      <span class="orb orb-b" aria-hidden="true"></span>
+      <span class="orb orb-c" aria-hidden="true"></span>
+    </section>
 
     <!-- BOTTOM CENTER: search -->
     <form class="search" id="search" autocomplete="off">
+      <svg class="trace" aria-hidden="true"><rect class="trace-line" pathLength="100"/></svg>
       <span class="search-glyph" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
       </span>
       <input id="q" type="text" placeholder="Search Google..." aria-label="Search Google" />
       <button type="submit" class="search-go" aria-label="Search">↵</button>
     </form>
+
+    <!-- NOW PLAYING (bottom left, above the wallpaper toggle) -->
+    <section class="media" id="media" aria-label="Now playing" hidden>
+      <button type="button" class="media-top" id="mediaOpen">
+        <span class="media-art">
+          <img id="mediaImg" alt="" hidden />
+          <span class="media-art-fallback" aria-hidden="true">&#9835;</span>
+        </span>
+        <span class="media-meta">
+          <span class="media-title" id="mediaTitle"></span>
+          <span class="media-artist" id="mediaArtist"></span>
+        </span>
+        <span class="media-eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+      </button>
+      <div class="media-bar" id="mediaBar"><span class="media-fill" id="mediaFill"></span></div>
+      <div class="media-row">
+        <span class="media-time" id="mediaCur">0:00</span>
+        <div class="media-ctrls">
+          <button type="button" class="media-btn" id="mediaPrev" aria-label="Previous">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 5h2.2v14H6zM19.5 5.4v13.2L9.6 12z"/></svg>
+          </button>
+          <button type="button" class="media-btn is-main" id="mediaToggle" aria-label="Pause">
+            <svg class="i-pause" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6.5 5h3.6v14H6.5zM13.9 5h3.6v14h-3.6z"/></svg>
+            <svg class="i-play" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5.2v13.6L19 12z"/></svg>
+          </button>
+          <button type="button" class="media-btn" id="mediaNext" aria-label="Next">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M15.8 5H18v14h-2.2zM4.5 5.4v13.2l9.9-6.6z"/></svg>
+          </button>
+        </div>
+        <span class="media-time" id="mediaDur">0:00</span>
+      </div>
+    </section>
 
     <!-- WALLPAPER CONTROL -->
     <div class="wp-control" id="wpControl">
@@ -45,6 +104,9 @@
       <button class="peek-toggle" id="peekToggle">Quick Peek</button>
       <div class="peek-panel" id="peekPanel" hidden></div>
     </div>
+
+    <!-- UNDO NOTE (after removing a shortcut by drag) -->
+    <div class="toast" id="toast" role="status" hidden></div>
 
     <!-- SECTION / SHORTCUT CONTEXT MENU -->
     <div class="ctx" id="ctxMenu" role="menu" hidden></div>
