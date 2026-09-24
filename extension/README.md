@@ -24,7 +24,10 @@ Nothing else to change. To add a 4th wallpaper, add one line to `WALLPAPERS` in 
 ## Customize
 Everything editable lives in **`config.js`**:
 - `WALLPAPERS` — wallpaper list and filenames
-- `WORKSPACES` — the workspace strip and the four cards + shortcuts (name, url, icon)
+- `DEFAULT_WORKSPACES` — workspaces (the icons on the left rail) and their sections
+  (the launcher's tabs) + shortcuts (name, url, icon). A workspace can set
+  `icon: "home" | "work" | "globe" | "game" | "folder" | "book" | "code" | "music"`.
+- `WEATHER_CONFIG` — °C / °F and an optional fixed city for the weather card
 - `SEARCH_URL` — search engine
 - `AI_CONFIG.endpoint` — your assistant endpoint
 
@@ -33,6 +36,25 @@ Disabled until you set `AI_CONFIG.endpoint`. Never put an API key in this extens
 point the endpoint at a small server of yours that holds the key. It receives
 `POST { messages: [{role, content}] }` and should return `{ "reply": "..." }`.
 
+## Now playing
+The card above the wallpaper toggle (bottom left) shows whatever is playing in
+another browser tab (Spotify, YouTube Music, YouTube, SoundCloud, Deezer, Apple
+Music, or any site that uses the browser's media controls), with artwork,
+previous / play-pause / next, and a seekable progress bar. Click the title to
+jump to that tab. It hides itself when nothing has played.
+
+- `media-bridge.js` / `media-relay.js` run on web pages and report the track.
+- `background.js` picks which tab to show and forwards the button presses.
+
+Tabs that were already open when the extension was installed or reloaded need
+one refresh before they are picked up. Desktop apps (the Spotify app, VLC, ...)
+are outside the browser and are not shown.
+
 ## Permissions
-Only `storage` (remembers wallpaper, workspace and most-used shortcuts).
+- `storage` — remembers wallpaper, workspace and most-used shortcuts.
+- Content scripts on `http(s)://*/*` — needed to read the now-playing info
+  from music sites. Chrome shows this as "read and change data on all
+  websites"; the scripts only read media metadata and never send anything
+  outside the browser.
+
 Everything works offline except Google search and the optional assistant.

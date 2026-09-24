@@ -3,10 +3,27 @@
   "name": "Atlas New Tab",
   "version": "1.0.0",
   "description": "A calm, editorial new tab with cinematic live wallpapers, shortcut cards, search and a compact assistant.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["http://*/*", "https://*/*"],
   "chrome_url_overrides": {
     "newtab": "index.html"
   },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["media-bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["media-relay.js"],
+      "run_at": "document_start"
+    }
+  ],
   "icons": {
     "48": "assets/icons/icon-48.png",
     "128": "assets/icons/icon-128.png"

@@ -104,146 +104,461 @@ html, body {
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
 }
 
-/* ---------- workspace strip ---------- */
-.strip {
-  margin-top: 14px;
-  display: inline-flex;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  backdrop-filter: blur(8px);
-}
-.strip button {
-  border: 0;
-  background: transparent;
-  color: var(--ink-faint);
-  font: inherit;
-  font-size: 10.5px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 5px 13px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: color 180ms var(--ease), background 180ms var(--ease);
-}
-.strip button:hover { color: var(--ink); }
-.strip button.is-on { background: rgba(255, 255, 255, 0.16); color: var(--ink); }
+/* ---------- header: clock + weather ---------- */
+.clock { display: flex; align-items: flex-start; gap: 18px; }
 
-/* ---------- floating docks ---------- */
-.dock {
-  position: fixed;
-  z-index: 2;
-  top: 0;
-  bottom: 0;
-  width: var(--card-w);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: clamp(12px, 1.2vh, 20px);
-  /* the docks are a frame for the wallpaper, not a wall: only the cards
-     inside them catch the pointer */
-  pointer-events: none;
-  padding: calc(var(--edge) + var(--clock-h) + 16px) 0 calc(var(--edge) + 72px);
-}
-.dock > * { pointer-events: auto; }
-/* if the cards outgrow the viewport the dock scrolls on its own */
-.dock {
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-}
-.dock::-webkit-scrollbar { display: none; }
-.dock-left { left: var(--edge); }
-.dock-right { right: var(--edge); }
-
-/* ---------- cards ---------- */
-.card {
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  backdrop-filter: blur(10px) saturate(1.05);
-  padding: 13px 13px 11px;
-  box-shadow: var(--shadow);
-  transition: transform 240ms var(--ease), background 240ms var(--ease),
-    border-color 240ms var(--ease), box-shadow 240ms var(--ease);
-}
-.card:hover {
-  transform: translateY(-2px);
-  background: var(--surface-hi);
-  border-color: var(--line-hi);
-  box-shadow: 0 20px 44px -22px rgba(82, 56, 9, 0.78);
-}
-
-.card-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 4px 9px;
-}
-.card-title {
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.card-hint {
-  flex: 0 0 auto;
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-/* shortcut rows */
-.tiles { display: flex; flex-direction: column; gap: 2px; }
-
-.tile {
+.weather {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 8px;
-  border-radius: var(--r-sm);
-  text-decoration: none;
-  color: var(--ink-soft);
-  transition: background 160ms var(--ease), color 160ms var(--ease), transform 160ms var(--ease);
+  margin-top: 2px;
+  padding: 8px 15px 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  animation: fade-up 620ms var(--ease) 170ms both;
+  transition: background 200ms var(--ease), border-color 200ms var(--ease), transform 200ms var(--ease);
 }
-.tile:hover { background: rgba(255, 255, 255, 0.12); color: var(--ink); transform: translateX(2px); }
-.tile-icon {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  display: block;
-  border-radius: 6px;
-  object-fit: contain;
-  image-rendering: -webkit-optimize-contrast;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.32);
-}
-.tile-fallback {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
+.weather:hover { background: var(--surface-hi); border-color: var(--line-hi); transform: translateY(-1px); }
+.weather:focus-visible { outline: 1px solid var(--line-hi); outline-offset: 2px; }
+.weather-icon {
   display: grid;
   place-items: center;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.1);
-  font-size: 11px;
-  color: var(--ink);
+  color: var(--accent);
+  filter: drop-shadow(0 0 6px rgba(216, 195, 165, 0.45));
 }
-.tile-name {
-  font-size: 12.5px;
-  letter-spacing: 0.01em;
-  min-width: 0;
+.weather-icon:empty { display: none; }
+.weather-temp { font-size: 22px; font-weight: 300; letter-spacing: -0.02em; line-height: 1; }
+.weather-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.weather-city {
+  max-width: 130px;
+  font-size: 11.5px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.weather-cond { font-size: 10.5px; color: var(--ink-faint); white-space: nowrap; }
+
+/* ---------- workspace rail + launcher (left) ----------
+   Both hang below the header. --launcher-bottom is the space kept free at
+   the bottom (wallpaper toggle, search, now-playing widget). */
+:root {
+  --rail-w: 50px;
+  --r-xl: 30px;
+  --launcher-top: calc(var(--edge) + var(--clock-h) + 20px);
+  --launcher-bottom: calc(var(--edge) + 58px);
+}
+
+.rail {
+  position: fixed;
+  z-index: 3;
+  left: var(--edge);
+  top: var(--launcher-top);
+  width: var(--rail-w);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--r-lg) + 4px);
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  animation: slide-in-left 640ms var(--ease) 120ms both;
+}
+.rail-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: color 180ms var(--ease), background 180ms var(--ease), box-shadow 180ms var(--ease);
+}
+.rail-btn:hover { color: var(--ink); background: rgba(255, 255, 255, 0.1); }
+/* the current workspace stays marked while the launcher is closed, but
+   only glows fully when it is open */
+body:not(.launcher-open) .rail-btn.is-on {
+  background: rgba(216, 195, 165, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(216, 195, 165, 0.22);
+}
+.rail-btn:focus-visible { outline: 1px solid var(--line-hi); outline-offset: 1px; }
+.rail-btn.is-on {
+  color: var(--ink);
+  background: rgba(216, 195, 165, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(216, 195, 165, 0.35), 0 0 16px -4px rgba(216, 195, 165, 0.55);
+}
+/* glowing marker on the rail's edge next to the active workspace */
+.rail-btn.is-on::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(216, 195, 165, 0.8);
+}
+.rail-letter { font-size: 13px; font-weight: 600; }
+.rail-sep { width: 20px; height: 1px; margin: 2px 0; background: var(--line); }
+/* workspace name, shown beside the icon on hover */
+.rail-btn::after {
+  content: attr(data-label);
+  position: absolute;
+  left: calc(100% + 14px);
+  top: 50%;
+  transform: translate(-4px, -50%);
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(18, 18, 22, 0.8);
+  backdrop-filter: blur(10px);
+  color: var(--ink);
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms var(--ease), transform 160ms var(--ease);
+}
+.rail-btn:hover::after,
+.rail-btn:focus-visible::after { opacity: 1; transform: translate(0, -50%); }
+
+/* the launcher is angled like a screen turned toward you (its right side
+   comes forward), and straightens when you reach for it */
+.launcher {
+  position: fixed;
+  z-index: 2;
+  left: calc(var(--edge) + var(--rail-w) + 16px);
+  top: var(--launcher-top);
+  width: min(470px, 33vw);
+  transform: perspective(1400px) rotateY(-8deg);
+  transform-origin: left center;
+  /* hidden until a rail icon opens it; it grows out from the rail.
+     translate/scale are separate from transform so the tilt rules below
+     (hover, tablet) don't fight the open/close motion */
+  opacity: 0;
+  visibility: hidden;
+  translate: -18px 0;
+  scale: 0.96;
+  transition: transform 600ms var(--ease), opacity 240ms var(--ease), translate 360ms var(--ease),
+    scale 360ms var(--ease), visibility 0s linear 360ms;
+}
+body.launcher-open .launcher {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+  scale: 1;
+  transition: transform 600ms var(--ease), opacity 240ms var(--ease), translate 360ms var(--ease),
+    scale 360ms var(--ease), visibility 0s;
+}
+.launcher:hover,
+.launcher:focus-within { transform: perspective(1400px) rotateY(-3deg); }
+
+.launcher-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-height: max(220px, calc(100vh - var(--launcher-top) - var(--launcher-bottom)));
+  padding: 14px 14px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background:
+    radial-gradient(120% 70% at 0% 0%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 55%),
+    radial-gradient(90% 60% at 100% 100%, rgba(216, 195, 165, 0.1), rgba(216, 195, 165, 0) 60%),
+    var(--surface);
+  backdrop-filter: blur(18px) saturate(1.1);
+  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+/* section tabs */
+.launcher-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.launcher-tabs {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.launcher-tabs::-webkit-scrollbar { display: none; }
+.ltab {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 180ms var(--ease), color 180ms var(--ease), box-shadow 180ms var(--ease);
+}
+.ltab:hover { color: var(--ink); background: rgba(255, 255, 255, 0.08); }
+.ltab:focus-visible { outline: 1px solid var(--line-hi); outline-offset: -1px; }
+.ltab.is-on {
+  color: #1d1a16;
+  font-weight: 600;
+  background: linear-gradient(180deg, rgba(236, 220, 196, 0.96), rgba(216, 195, 165, 0.88));
+  box-shadow: 0 6px 18px -6px rgba(216, 195, 165, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.ltab[aria-expanded="true"] { box-shadow: 0 0 0 1px var(--line-hi); }
+.launcher-tools { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
+.launcher-tools .dots { opacity: 1; width: 28px; height: 28px; margin: 0; border-radius: 50%; }
+.ltool {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 180ms var(--ease), color 180ms var(--ease), transform 180ms var(--ease);
+}
+.ltool:hover { background: rgba(255, 255, 255, 0.16); color: var(--ink); transform: rotate(90deg); }
+.ltool:focus-visible { outline: 1px solid var(--line-hi); outline-offset: 1px; }
+
+/* app grid */
+.launcher-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
+  gap: 16px 6px;
+  padding: 4px 2px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.app {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  animation: fade-up 460ms var(--ease) both;
+  animation-delay: calc(240ms + var(--i, 0) * 28ms);
+}
+.app-link,
+.app-add {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  border-radius: var(--r-md);
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+.app-add { border: 0; background: transparent; font: inherit; cursor: pointer; }
+.app-link:focus-visible,
+.app-add:focus-visible { outline: none; }
+
+/* round glossy "glass marble" behind each icon */
+.app-bubble {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 42%),
+    radial-gradient(circle at 70% 85%, rgba(216, 195, 165, 0.18), rgba(216, 195, 165, 0) 55%),
+    rgba(20, 20, 26, 0.55);
+  box-shadow: 0 12px 22px -12px rgba(0, 0, 0, 0.85), inset 0 1px 1px rgba(255, 255, 255, 0.3),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.35);
+  transition: transform 260ms var(--ease), box-shadow 260ms var(--ease), border-color 260ms var(--ease);
+}
+.app-bubble::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 10px;
+  right: 10px;
+  height: 42%;
+  border-radius: 50% 50% 45% 45% / 60% 60% 40% 40%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+.app-icon { width: 28px; height: 28px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4)); }
+.app-bubble .tile-fallback {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+/* shared fallback letter (also used by Quick Peek) */
+.tile-fallback {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--ink);
+}
+.app-name {
+  max-width: 100%;
+  font-size: 11.5px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+  transition: color 180ms var(--ease);
+}
+.app-link:hover .app-bubble,
+.app-add:hover .app-bubble,
+.app-link:focus-visible .app-bubble,
+.app-add:focus-visible .app-bubble {
+  transform: translateY(-3px) scale(1.06);
+  border-color: rgba(216, 195, 165, 0.5);
+  box-shadow: 0 16px 26px -12px rgba(0, 0, 0, 0.9), 0 0 22px -4px rgba(216, 195, 165, 0.55),
+    inset 0 1px 1px rgba(255, 255, 255, 0.35), inset 0 -6px 12px rgba(0, 0, 0, 0.3);
+}
+.app-link:hover .app-name,
+.app-add:hover .app-name { color: var(--ink); }
+.app-link:active .app-bubble { transform: scale(0.96); }
+.app-add .app-bubble {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink-soft);
+  font-size: 24px;
+  font-weight: 300;
+}
+.app .dots {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  margin: 0;
+  border-radius: 50%;
+  background: rgba(18, 18, 22, 0.6);
+}
+
+/* glossy bubbles resting on the panel's corners */
+.orb {
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.85) 0 6%, rgba(255, 255, 255, 0.18) 18%,
+    rgba(216, 195, 165, 0.12) 55%, rgba(216, 195, 165, 0.28) 100%);
+  backdrop-filter: blur(4px);
+  box-shadow: inset 0 -6px 12px rgba(0, 0, 0, 0.25), 0 8px 20px -8px rgba(0, 0, 0, 0.7),
+    0 0 18px -6px rgba(216, 195, 165, 0.5);
+  pointer-events: none;
+  animation: orb-float 7s ease-in-out infinite alternate;
+}
+.orb-a { width: 32px; height: 32px; top: -14px; right: 64px; }
+.orb-b { width: 44px; height: 44px; right: -14px; bottom: -14px; animation-delay: -2.5s; }
+.orb-c { width: 20px; height: 20px; left: -8px; bottom: 22%; animation-delay: -5s; }
+@keyframes orb-float {
+  from { transform: translateY(0); }
+  to { transform: translateY(-6px); }
+}
+
+/* ---------- drag and drop ---------- */
+.app[draggable="true"],
+.ltab[draggable="true"] { -webkit-user-drag: element; }
+.app.is-dragging,
+.ltab.is-dragging { opacity: 0.35; }
+.app.is-dragging .app-bubble { transform: scale(0.9); box-shadow: none; }
+/* while dragging, hovers and the ⋮ stay quiet so the drop spot is clear */
+body.is-dragging .app .dots { opacity: 0; }
+body.is-dragging .app-link:hover .app-bubble { transform: none; }
+.app { transition: opacity 160ms var(--ease); }
+/* a section tab that will receive the dragged app */
+.ltab.is-drop {
+  color: var(--ink);
+  background: rgba(216, 195, 165, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(216, 195, 165, 0.6), 0 0 16px -4px rgba(216, 195, 165, 0.6);
+}
+
+/* remove bar: slides up from the bottom of the panel during a drag */
+.launcher-trash {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  z-index: 2;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed rgba(232, 160, 160, 0.45);
+  border-radius: 999px;
+  background: rgba(40, 14, 14, 0.62);
+  backdrop-filter: blur(10px);
+  color: #e8a0a0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition: opacity 180ms var(--ease), transform 180ms var(--ease), background 160ms var(--ease);
+}
+body.is-dragging .launcher-trash { opacity: 1; transform: none; pointer-events: auto; }
+.launcher-trash.is-over { background: rgba(120, 30, 30, 0.72); color: #fff0f0; border-style: solid; }
+/* room for the bar, so the last row can still be reached */
+body.is-dragging .launcher-grid { padding-bottom: 62px; }
+
+/* "Removed … Undo" note, just above the search bar */
+.toast {
+  position: fixed;
+  z-index: 25;
+  left: 50%;
+  bottom: calc(var(--edge) + 58px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(18, 18, 22, 0.72);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  animation: fade-up-centered 260ms var(--ease) both;
+}
+.toast[hidden] { display: none; }
+.toast button {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(216, 195, 165, 0.24);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toast button:hover { background: rgba(216, 195, 165, 0.38); }
 
 /* ---------- search (bottom center) ---------- */
 .search {
@@ -482,8 +797,8 @@ html, body {
 
 
 /* ---------- editing controls ---------- */
-/* the ⋮ sits in the card head and on each shortcut row; it stays out of the
-   way until the card is hovered, so the calm default look is unchanged */
+/* the ⋮ sits on each app icon and beside the section tabs; on icons it
+   stays out of the way until hovered, so the calm default look is unchanged */
 .dots {
   flex: 0 0 auto;
   width: 20px;
@@ -501,64 +816,11 @@ html, body {
   opacity: 0;
   transition: opacity 160ms var(--ease), background 160ms var(--ease), color 160ms var(--ease);
 }
-.card:hover .dots,
-.card:focus-within .dots { opacity: 1; }
+.app:hover .dots,
+.app:focus-within .dots { opacity: 1; }
 .dots:hover { background: rgba(255, 255, 255, 0.14); color: var(--ink); }
 .dots:focus-visible { opacity: 1; outline: 1px solid var(--line-hi); outline-offset: -1px; }
 .dots[aria-expanded="true"] { opacity: 1; background: rgba(255, 255, 255, 0.16); color: var(--ink); }
-
-/* a shortcut row: the link keeps its own hover, the ⋮ rides alongside */
-.tile-row { display: flex; align-items: center; gap: 2px; }
-.tile-row .tile { flex: 1; min-width: 0; }
-.tile-row .dots { margin-right: 2px; }
-
-/* "Add shortcut" reuses the tile rhythm but reads as an affordance */
-.tile-add {
-  border: 0;
-  background: transparent;
-  font: inherit;
-  width: 100%;
-  text-align: left;
-  color: var(--ink-faint);
-  cursor: pointer;
-  opacity: 0;
-  transition: background 160ms var(--ease), color 160ms var(--ease), opacity 160ms var(--ease);
-}
-.card:hover .tile-add,
-.card:focus-within .tile-add { opacity: 1; }
-.tile-add:focus-visible { opacity: 1; }
-.tile-add:hover { background: rgba(255, 255, 255, 0.1); color: var(--ink); }
-.tile-plus {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
-  border: 1px dashed var(--line-hi);
-  font-size: 13px;
-  line-height: 1;
-}
-
-.add-section {
-  flex: 0 0 auto;
-  width: 100%;
-  padding: 9px 10px;
-  border: 1px dashed var(--line);
-  border-radius: var(--r-lg);
-  background: transparent;
-  color: var(--ink-faint);
-  font: inherit;
-  font-size: 11.5px;
-  letter-spacing: 0.06em;
-  cursor: pointer;
-  transition: background 180ms var(--ease), color 180ms var(--ease), border-color 180ms var(--ease);
-}
-.add-section:hover {
-  background: var(--surface);
-  border-color: var(--line-hi);
-  color: var(--ink);
-}
 
 /* ---------- ⋮ context menu ---------- */
 .ctx {
@@ -691,7 +953,7 @@ html, body {
 
 /* touch: no hover to reveal, so the controls stay visible */
 @media (hover: none) {
-  .dots, .tile-add { opacity: 1; }
+  .dots { opacity: 1; }
 }
 @media (max-width: 720px) {
   .ed-field input { font-size: 16px; }  /* stops iOS zoom-on-focus */
@@ -786,7 +1048,7 @@ html, body {
 
 .cc-list { list-style: none; margin: 0; padding: 0; }
 
-/* section label, same voice as .card-hint */
+/* section label: small caps, faint */
 .cc-group {
   padding: 9px 10px 5px;
   font-size: 9px;
@@ -950,7 +1212,6 @@ html, body {
 /* clock */
 .clock-time { animation: fade-up 620ms var(--ease) both; }
 .clock-date { animation: fade-up 620ms var(--ease) 90ms both; }
-.strip { animation: fade-up 620ms var(--ease) 170ms both; }
 
 /* the digits themselves fade in whenever the minute rolls over */
 @keyframes digit-in {
@@ -958,56 +1219,6 @@ html, body {
   to { opacity: 1; transform: none; }
 }
 #time.is-tick { animation: digit-in 420ms var(--ease); }
-
-/* docks slide in from their own edge, cards stagger behind them */
-.dock-left { animation: slide-in-left 640ms var(--ease) 120ms both; }
-.dock-right { animation: slide-in-right 640ms var(--ease) 200ms both; }
-
-.card { animation: fade-up 520ms var(--ease) both; }
-.dock-left .card:nth-child(1) { animation-delay: 220ms; }
-.dock-left .card:nth-child(2) { animation-delay: 300ms; }
-.dock-right .card:nth-child(1) { animation-delay: 300ms; }
-.dock-right .card:nth-child(2) { animation-delay: 380ms; }
-
-/* shortcut rows cascade inside each card */
-.tile { animation: fade-in 420ms var(--ease) both; }
-.tile:nth-child(1) { animation-delay: 340ms; }
-.tile:nth-child(2) { animation-delay: 380ms; }
-.tile:nth-child(3) { animation-delay: 420ms; }
-.tile:nth-child(4) { animation-delay: 460ms; }
-.tile:nth-child(5) { animation-delay: 500ms; }
-.tile:nth-child(6) { animation-delay: 540ms; }
-
-/* icon lifts and brightens with its row */
-.tile-icon, .tile-fallback {
-  transition: transform 220ms var(--ease), box-shadow 220ms var(--ease),
-    filter 220ms var(--ease);
-}
-.tile:hover .tile-icon,
-.tile:hover .tile-fallback {
-  transform: scale(1.12) rotate(-3deg);
-  filter: saturate(1.15) brightness(1.06);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
-}
-.tile:active { transform: translateX(2px) scale(0.985); }
-
-/* card gains a soft sheen on hover */
-.card { position: relative; overflow: hidden; }
-.card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(
-    120% 90% at 50% 0%,
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0) 62%
-  );
-  opacity: 0;
-  transition: opacity 280ms var(--ease);
-  pointer-events: none;
-}
-.card:hover::after { opacity: 1; }
 
 /* bottom-edge furniture */
 .search { animation: fade-up-centered 620ms var(--ease) 260ms both; }
@@ -1027,6 +1238,52 @@ html, body {
 .search-go:hover { transform: scale(1.08); }
 .search-go:active { transform: scale(0.94); }
 
+/* a soft light travels clockwise around the border of the search pill and
+   the cards. It is an SVG outline (see TRACE_SVG in app.js) whose dashes
+   run along the real perimeter, so the speed is the same on every edge and
+   corner. pathLength="100" makes the dash sizes percentages of the loop. */
+.trace {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.search .trace { inset: -1px; width: calc(100% + 2px); height: calc(100% + 2px); }
+.trace rect {
+  x: 0.75px;
+  y: 0.75px;
+  width: calc(100% - 1.5px);
+  height: calc(100% - 1.5px);
+  rx: var(--trace-rx, 16px);
+  fill: none;
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  animation: 8s linear infinite;
+}
+/* a single soft dash in the dim accent tone, starting at the top-left
+   corner and moving top -> right -> bottom -> left */
+.trace .trace-line {
+  stroke: rgba(216, 195, 165, 0.55);
+  stroke-dasharray: 26 74;
+  animation-name: trace-run;
+  /* same accent tone bled outward, so the dash reads as light, not a line */
+  filter: drop-shadow(0 0 2px rgba(216, 195, 165, 0.9))
+    drop-shadow(0 0 6px rgba(216, 195, 165, 0.6));
+}
+@keyframes trace-run { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+
+/* radius of the traced outline = element radius minus the half-stroke inset */
+.launcher-body { --trace-rx: calc(var(--r-xl) - 1.75px); }
+.rail { --trace-rx: calc(var(--r-lg) + 4px - 1.75px); }
+.weather { position: relative; --trace-rx: calc(var(--r-md) - 1.75px); }
+/* each box starts its lap at a different point so they don't move in step */
+.rail .trace rect { animation-delay: -2.7s; }
+.weather .trace rect { animation-delay: -5.3s; }
+.search { --trace-rx: 21.25px; }         /* 44px pill */
+.media { --trace-rx: calc(var(--r-lg) - 1.75px); }
+
 /* assistant bubble breathes until it is first opened */
 @keyframes bubble-pulse {
   0%, 100% { box-shadow: var(--shadow), 0 0 0 0 rgba(216, 195, 165, 0.28); }
@@ -1043,118 +1300,276 @@ html, body {
 }
 .msg { animation: msg-in 260ms var(--ease) both; }
 
-/* peek + strip micro-interactions */
+/* peek micro-interactions */
 .peek-panel { animation: menu-in 200ms var(--ease) both; }
 .peek-panel a { transition: background 160ms var(--ease), color 160ms var(--ease), transform 160ms var(--ease); }
 .peek-panel a:hover { transform: translateX(2px); }
-.strip button:active { transform: scale(0.96); }
 .wp-toggle { transition: color 180ms var(--ease), background 180ms var(--ease), transform 320ms var(--ease); }
 .wp-toggle:hover { transform: rotate(180deg); }
 
+/* ---------- now playing (bottom left, above the wallpaper toggle) ----------
+   Same glass as the rest of the page. */
+.media {
+  position: fixed;
+  z-index: 2;
+  left: var(--edge);
+  bottom: calc(var(--edge) + 42px);
+  width: var(--card-w);
+  padding: 11px 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  backdrop-filter: blur(10px) saturate(1.05);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  animation: fade-up 520ms var(--ease) both;
+  transition: background 240ms var(--ease), border-color 240ms var(--ease);
+}
+.media[hidden] { display: none; }
+.media:hover { background: var(--surface-hi); border-color: var(--line-hi); }
+
+/* the launcher stops above the widget instead of running under it */
+body.has-media {
+  --launcher-bottom: calc(var(--edge) + 42px + var(--media-h, 120px) + 16px);
+}
+
+.media-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.media-art {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(216, 195, 165, 0.32), rgba(255, 255, 255, 0.06));
+  box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.55);
+}
+.media-art img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.media-art-fallback { font-size: 17px; color: var(--ink-soft); }
+.media-meta { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.media-title,
+.media-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-title { font-size: 12.5px; font-weight: 600; letter-spacing: 0.01em; color: var(--ink); }
+.media-artist { font-size: 11px; color: var(--ink-faint); }
+.media-top:hover .media-title { text-decoration: underline; text-underline-offset: 2px; }
+
+/* little equalizer: moves while playing, settles when paused */
+.media-eq {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+  margin-right: 2px;
+}
+.media-eq i {
+  width: 2.5px;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(255, 246, 230, 0.95), rgba(216, 195, 165, 0.55));
+  transform-origin: bottom;
+  animation: eq 900ms ease-in-out infinite alternate;
+}
+.media-eq i:nth-child(2) { animation-duration: 700ms; animation-delay: -200ms; }
+.media-eq i:nth-child(3) { animation-duration: 1100ms; animation-delay: -500ms; }
+.media-eq i:nth-child(4) { animation-duration: 800ms; animation-delay: -350ms; }
+.media-eq i:nth-child(5) { animation-duration: 1000ms; animation-delay: -650ms; }
+@keyframes eq {
+  from { transform: scaleY(0.25); }
+  to { transform: scaleY(1); }
+}
+.media.is-paused .media-eq i { animation: none; transform: scaleY(0.2); opacity: 0.6; }
+
+.media-bar {
+  position: relative;
+  height: 3px;
+  margin: 10px 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  transition: height 160ms var(--ease);
+}
+.media-bar.is-seekable { cursor: pointer; }
+.media-bar.is-seekable:hover { height: 5px; }
+/* a taller invisible hit area so the thin bar is easy to click */
+.media-bar::before { content: ""; position: absolute; inset: -6px 0; }
+.media-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(216, 195, 165, 0.7), rgba(255, 246, 230, 0.95));
+  transition: width 500ms linear;
+}
+
+.media-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.media-time {
+  min-width: 34px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.media-time:last-child { text-align: right; }
+.media-ctrls { display: flex; align-items: center; gap: 4px; }
+.media-btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 160ms var(--ease), color 160ms var(--ease), transform 160ms var(--ease);
+}
+.media-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: var(--ink); }
+.media-btn:active:not(:disabled) { transform: scale(0.92); }
+.media-btn:disabled { opacity: 0.32; cursor: default; }
+.media-btn:focus-visible,
+.media-top:focus-visible { outline: 1px solid var(--line-hi); outline-offset: 2px; }
+.media-btn.is-main {
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.media-btn.is-main:hover { background: rgba(255, 255, 255, 0.22); }
+.media-btn .i-play { display: none; margin-left: 2px; }
+.media.is-paused .media-btn .i-play { display: block; }
+.media.is-paused .media-btn .i-pause { display: none; }
+
+/* tablet + phone: the widget sits above the search bar */
+@media (max-width: 1024px) {
+  .media {
+    bottom: calc(var(--edge) + 56px);
+    width: min(320px, calc(100vw - 2 * var(--edge)));
+  }
+  body.has-media {
+    --launcher-bottom: calc(var(--edge) + 56px + var(--media-h, 120px) + 12px);
+  }
+}
+/* phone: full width */
+@media (max-width: 720px) {
+  .media { right: var(--edge); width: auto; }
+}
+/* landscape phones have no vertical room for it */
+@media (max-height: 460px) and (orientation: landscape) {
+  .media { display: none; }
+  body.has-media { --launcher-bottom: calc(var(--edge) + 58px); }
+}
+
 /* ---------- high-resolution polish ---------- */
 @media (min-width: 2400px) {
-  :root { --card-w: clamp(240px, 15vw, 320px); --r-lg: 20px; }
+  :root { --card-w: clamp(240px, 15vw, 320px); --r-lg: 20px; --rail-w: 56px; }
+  .launcher { width: min(560px, 24vw); }
+  .app-bubble { width: 64px; height: 64px; }
+  .app-icon { width: 30px; height: 30px; }
 }
 @media (min-width: 3400px) {
   :root { --card-w: clamp(280px, 13.5vw, 380px); --edge: 64px; }
-  .tile-name { font-size: 14px; }
-  .card-title { font-size: 14px; }
-  .tile-icon, .tile-fallback { width: 26px; height: 26px; }
-  .search { width: min(560px, 26vw); height: 52px; }
+  .app-name { font-size: 13px; }
+  .ltab { font-size: 13.5px; }
+  .search { width: min(560px, 26vw); height: 52px; --trace-rx: 25.25px; }
 }
 
 /* ================= RESPONSIVE =============================================
-   Four bands: desktop (default, edge docks) -> laptop -> tablet (docks drop
-   below the clock, side by side) -> phone (single scrolling column).       */
+   desktop (rail + tilted launcher on the left) -> laptop -> tablet (launcher
+   widens to fill the width, tilt off) -> phone (narrower rail, smaller
+   icons).                                                                  */
 
 /* short laptop screens: tighten the vertical rhythm */
 @media (max-height: 820px) {
-  .dock { gap: 10px; padding: calc(var(--edge) + var(--clock-h) + 10px) 0 calc(var(--edge) + 64px); }
-  .card { padding: 11px 11px 9px; }
-  .tile { padding: 6px 8px; }
-  .tile-name { font-size: 12px; }
+  .launcher-head { margin-bottom: 10px; }
+  .launcher-grid { gap: 12px 6px; }
+  .app-bubble { width: 52px; height: 52px; }
+  .app-icon { width: 26px; height: 26px; }
 }
 @media (max-height: 620px) {
-  .card-head { margin-bottom: 7px; }
-  .tile { padding: 5px 8px; }
-  .tile-icon, .tile-fallback { width: 19px; height: 19px; }
   .clock-time { font-size: clamp(24px, 3.4vh, 32px); }
-  .search { height: 40px; }
+  .search { height: 40px; --trace-rx: 19.25px; }
+  .app-bubble { width: 46px; height: 46px; }
+  .app-icon { width: 24px; height: 24px; }
+  .app-link, .app-add { gap: 6px; }
 }
 
 /* laptop */
 @media (max-width: 1280px) {
   :root { --card-w: clamp(182px, 19vw, 240px); }
   .search { width: min(460px, 44vw); }
+  .launcher { width: min(430px, 38vw); }
 }
 
-/* tablet: the edge docks would crowd the wallpaper, so bring them inboard
-   as a two-column band that flows in the normal document order. */
+/* tablet: the launcher takes the full width beside the rail and stands
+   upright — a tilt reads as a mistake when there's no room around it */
 @media (max-width: 1024px) {
-  :root { --edge: clamp(16px, 3.4vw, 28px); }
-
-  /* two columns under the clock rather than pinned to the viewport edges */
-  .dock {
-    top: calc(var(--edge) + var(--clock-h) + 14px);
-    bottom: calc(var(--edge) + 68px);
-    width: calc((100vw - 2 * var(--edge) - 14px) / 2);
-    justify-content: flex-start;
-    gap: 12px;
-    padding: 0;
+  :root {
+    --edge: clamp(16px, 3.4vw, 28px);
+    --launcher-bottom: calc(var(--edge) + 68px);
   }
-  .dock-left, .dock-right { animation: fade-up 560ms var(--ease) both; }
-  .dock-left { animation-delay: 140ms; }
-  .dock-right { animation-delay: 220ms; }
-  .dock-left { left: var(--edge); }
-  .dock-right { right: var(--edge); }
+  .launcher {
+    left: calc(var(--edge) + var(--rail-w) + 14px);
+    width: calc(100vw - 2 * var(--edge) - var(--rail-w) - 14px);
+    transform: none;
+  }
+  .launcher:hover,
+  .launcher:focus-within { transform: none; }
 
   .peek { display: none; }
   .search { width: calc(100vw - 2 * var(--edge) - 108px); max-width: 520px; }
 }
 
-/* phone: one column, everything scrolls, edge furniture gets out of the way */
+/* phone */
 @media (max-width: 720px) {
   :root {
     --edge: 14px;
     --r-lg: 16px;
+    --r-xl: 24px;
+    --rail-w: 44px;
+    --launcher-bottom: calc(var(--edge) + 64px);
   }
 
   html, body { overflow: hidden; }
 
-  .dock {
-    position: fixed;
-    left: var(--edge);
-    right: var(--edge);
-    width: auto;
-    top: calc(var(--edge) + var(--clock-h) + 12px);
-    bottom: calc(var(--edge) + 64px);
-    overflow-y: auto;
-    gap: 10px;
-    padding: 0;
-  }
-  /* one column: the left dock takes the upper half, the right dock the
-     lower half. Each scrolls independently so neither can push the other
-     off-screen. */
-  .dock-left {
-    top: calc(var(--edge) + var(--clock-h) + 12px);
-    bottom: 50%;
-    margin-bottom: 5px;
-  }
-  .dock-right {
-    top: 50%;
-    bottom: calc(var(--edge) + 64px);
-    margin-top: 5px;
-  }
-
+  .clock { gap: 12px; }
   .clock-time { font-size: clamp(26px, 7.6vw, 34px); }
   .clock-date { font-size: 10px; letter-spacing: 0.18em; }
-  .strip { margin-top: 10px; }
-  .strip button { padding: 5px 11px; font-size: 10px; }
 
-  .card { padding: 12px 12px 10px; }
-  .tile { padding: 9px 8px; }         /* bigger touch target */
-  .tile-name { font-size: 13px; }
-  .tile-icon, .tile-fallback { width: 24px; height: 24px; }
+  .rail { gap: 4px; padding: 6px 0; }
+  .rail-btn { width: 32px; height: 32px; }
+  .rail-btn.is-on::before { left: -6px; }
+  .launcher { left: calc(var(--edge) + var(--rail-w) + 10px); width: calc(100vw - 2 * var(--edge) - var(--rail-w) - 10px); }
+  .launcher-body { padding: 12px 10px 10px; }
+  .launcher-grid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 12px 4px; }
+  .ltab { padding: 6px 11px; }
+  .app-bubble { width: 50px; height: 50px; }
+  .app-icon { width: 25px; height: 25px; }
+  .orb-c { display: none; }
 
   /* sits on the bottom edge, inset between the wallpaper toggle (30px,
      bottom-left) and the assistant bubble (40px, bottom-right) */
@@ -1179,40 +1594,25 @@ html, body {
 
 /* very small / landscape phones */
 @media (max-width: 420px) {
-  .card-hint { display: none; }
-  .tile-name { font-size: 12.5px; }
+  .weather { padding: 7px 11px 7px 9px; gap: 8px; }
+  .weather-cond { display: none; }
+  .app-name { font-size: 11px; }
 }
 @media (max-height: 460px) and (orientation: landscape) {
-  .dock {
-    top: calc(var(--edge) + var(--clock-h) + 8px);
-    bottom: calc(var(--edge) + 58px);
-  }
-  /* landscape has width to spare: go back to two side-by-side columns */
-  .dock-left {
-    left: var(--edge); right: auto;
-    width: calc(50vw - var(--edge) - 6px);
-    top: calc(var(--edge) + var(--clock-h) + 8px);
-    bottom: calc(var(--edge) + 58px);
-    margin-bottom: 0;
-  }
-  .dock-right {
-    right: var(--edge); left: auto;
-    width: calc(50vw - var(--edge) - 6px);
-    top: calc(var(--edge) + var(--clock-h) + 8px);
-    bottom: calc(var(--edge) + 58px);
-    margin-top: 0;
-  }
+  :root { --launcher-bottom: calc(var(--edge) + 58px); }
   .clock-time { font-size: 22px; }
+  .app-bubble { width: 42px; height: 42px; }
+  .app-icon { width: 22px; height: 22px; }
   /* inherits the inset left/right from the phone block, so it still clears
      the toggle and the bubble */
-  .search { height: 40px; bottom: var(--edge); }
+  .search { height: 40px; bottom: var(--edge); --trace-rx: 19.25px; }
 }
 
 /* respect device safe areas (notches, home indicator) */
 @supports (padding: env(safe-area-inset-left)) {
   @media (max-width: 1024px) {
-    .dock-left, .wp-control { margin-left: env(safe-area-inset-left); }
-    .dock-right, .ai, .peek { margin-right: env(safe-area-inset-right); }
+    .rail, .launcher, .wp-control { margin-left: env(safe-area-inset-left); }
+    .ai, .peek { margin-right: env(safe-area-inset-right); }
     .clock { margin-left: env(safe-area-inset-left); margin-top: env(safe-area-inset-top); }
     .search, .wp-control, .ai { margin-bottom: env(safe-area-inset-bottom); }
   }
@@ -1220,9 +1620,10 @@ html, body {
 
 /* coarse pointers get no hover-lift, but keep the press feedback */
 @media (hover: none) {
-  .card:hover { transform: none; }
-  .tile:hover { transform: none; background: transparent; }
-  .tile:active { background: rgba(255, 255, 255, 0.14); transform: scale(0.98); }
+  .app .dots { opacity: 1; }
+  .app-link:hover .app-bubble { transform: none; }
+  .app-link:active .app-bubble { transform: scale(0.94); }
+  .rail-btn::after { display: none; }
   .wp-toggle:hover { transform: none; }
 }
 
@@ -1236,4 +1637,5 @@ html, body {
     scroll-behavior: auto !important;
   }
   .wp-layer.is-active { animation: none; transform: translateZ(0); }
+  .trace { display: none; }
 }

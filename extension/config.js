@@ -184,3 +184,14 @@ const AI_CONFIG = {
   notConfigured:
     "The assistant isn't connected yet. Add your endpoint URL in config.js (AI_CONFIG.endpoint) to enable replies.",
 };
+
+/* ---------- 6. WEATHER -----------------------------------------
+   Shown next to the clock, from the free Open-Meteo service (no key).
+   By default it uses your current location (Chrome asks once). Click the
+   weather card on the new tab to type a city instead.
+   units: "celsius" or "fahrenheit"
+   city:  optional fixed city name, e.g. "Karachi" — overrides location */
+const WEATHER_CONFIG = {
+  units: "celsius",
+  city: "",
+};
