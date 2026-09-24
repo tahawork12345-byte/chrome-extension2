@@ -21,8 +21,25 @@ wallpapers/wallpaper-3.mp4
 Nothing else to change. To add a 4th wallpaper, add one line to `WALLPAPERS` in `config.js`.
 (The bundled videos are lightweight placeholders — replace them with your own 1080p/4K clips.)
 
-## Customize
-Everything editable lives in **`config.js`**:
+## Customize (in the page)
+Open the **Customize** panel from the palette icon on the left rail, the
+wallpaper menu (◑ → Customize…), the Command Center (Ctrl+Space → "Customize"),
+or by right-clicking the bare wallpaper. Every change applies live and is saved.
+- **Theme** — presets, accent / text / glass colours, glass opacity, blur,
+  borders, roundness, font
+- **Background** — a live wallpaper, your own image or video, a solid colour or a
+  gradient; brightness, saturation, blur, dim, drift, playback speed
+- **Lighting** — the border light (colour, speed, length, brightness), orbs,
+  3D tilt, animations
+- **Widgets** — show / hide, position (9 anchors + nudge), and size for the clock,
+  search bar, now playing, wallpaper button, Quick Peek and assistant; dock side,
+  width and icon size; 24-hour clock, date, °C / °F, search engine
+- **Backup** — export / import settings as JSON, or reset everything
+
+The code is in `customize.js`; uploaded background files are kept in IndexedDB.
+
+## Customize (defaults in config.js)
+The starting content lives in **`config.js`**:
 - `WALLPAPERS` — wallpaper list and filenames
 - `DEFAULT_WORKSPACES` — workspaces (the icons on the left rail) and their sections
   (the launcher's tabs) + shortcuts (name, url, icon). A workspace can set
@@ -32,9 +49,18 @@ Everything editable lives in **`config.js`**:
 - `AI_CONFIG.endpoint` — your assistant endpoint
 
 ## AI assistant
-Disabled until you set `AI_CONFIG.endpoint`. Never put an API key in this extension —
-point the endpoint at a small server of yours that holds the key. It receives
-`POST { messages: [{role, content}] }` and should return `{ "reply": "..." }`.
+The ✦ chat (bottom right) is answered by Google Gemini through a small server
+in `server/chat.js`, which keeps the API key out of the extension.
+
+1. Copy `server/.env.example` to `server/.env` and put your key in it
+   (free key: https://aistudio.google.com/apikey). `.env` is git-ignored.
+2. From the project root run `npm run assistant`. It listens on
+   `http://localhost:3001/api/chat`, the address set in `AI_CONFIG.endpoint`.
+3. Keep that terminal open while you use the assistant.
+
+Change the model with `GEMINI_MODEL` in `server/.env`. Never put an API key in the
+extension itself. Any server works if it takes `POST { messages: [{role, content}] }`
+and returns `{ "reply": "..." }`.
 
 ## Now playing
 The card above the wallpaper toggle (bottom left) shows whatever is playing in

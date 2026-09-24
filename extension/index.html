@@ -11,6 +11,9 @@
     <div class="wallpaper">
       <video class="wp-layer is-active" id="videoA" muted loop playsinline preload="auto"></video>
       <video class="wp-layer" id="videoB" muted loop playsinline preload="auto"></video>
+      <!-- custom backgrounds: an uploaded image, or a solid colour / gradient -->
+      <img class="wp-image" id="wpImage" alt="" />
+      <div class="wp-fill" id="wpFill"></div>
       <div class="wp-veil"></div>
     </div>
 
@@ -169,20 +172,35 @@
     <!-- AI CHAT -->
     <div class="ai" id="ai">
       <button class="ai-bubble" id="aiToggle" aria-label="Open assistant">✦</button>
-      <div class="ai-panel" id="aiPanel" hidden>
+      <div class="ai-panel" id="aiPanel" role="dialog" aria-label="Assistant" hidden>
         <div class="ai-head">
-          <span>Assistant</span>
-          <button class="ai-close" id="aiClose" aria-label="Close assistant">✕</button>
+          <span class="ai-avatar" aria-hidden="true">&#10022;</span>
+          <span class="ai-who">
+            <span class="ai-name">Atlas</span>
+            <span class="ai-status" id="aiStatus"><i aria-hidden="true"></i><span id="aiStatusText">Online</span></span>
+          </span>
+          <button type="button" class="ai-icon-btn" id="aiClear" aria-label="Clear chat" title="Clear chat">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6.5 7l1 12h9l1-12"/></svg>
+          </button>
+          <button type="button" class="ai-icon-btn" id="aiClose" aria-label="Close assistant" title="Close">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
         </div>
-        <div class="ai-log" id="aiLog"></div>
+        <div class="ai-log" id="aiLog" role="log" aria-live="polite"></div>
         <form class="ai-form" id="aiForm">
-          <input id="aiInput" type="text" placeholder="Message..." aria-label="Message assistant" />
-          <button type="submit" aria-label="Send">→</button>
+          <div class="ai-field">
+            <textarea id="aiInput" rows="1" placeholder="Ask Atlas anything&hellip;" aria-label="Message assistant"></textarea>
+            <button type="submit" class="ai-send" id="aiSend" aria-label="Send">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+            </button>
+          </div>
+          <div class="ai-hint">Enter to send &middot; Shift + Enter for a new line</div>
         </form>
       </div>
     </div>
 
     <script src="config.js"></script>
+    <script src="customize.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

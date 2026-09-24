@@ -179,8 +179,9 @@ const SEARCH_URL = "https://www.google.com/search?q=";
    Your endpoint receives:  POST { messages: [{role, content}, ...] }
    and should reply with JSON: { reply: "..." }                    */
 const AI_CONFIG = {
-  endpoint: "http://localhost:3000/api/chat",// <-- leave empty to keep the assistant disabled
-  greeting: "Hi. Ask me anything once an assistant endpoint is connected.",
+  /* the Gemini bridge in server/chat.js — start it with:  npm run assistant */
+  endpoint: "http://localhost:3001/api/chat", // <-- leave empty to keep the assistant disabled
+  greeting: "Hi, I'm Atlas. Ask me anything.",
   notConfigured:
     "The assistant isn't connected yet. Add your endpoint URL in config.js (AI_CONFIG.endpoint) to enable replies.",
 };
