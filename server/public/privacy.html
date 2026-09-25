@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas New Tab – Privacy Policy</title>
+<style>
+  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#5f5f5a; --line:#e3e3de; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141413; --fg:#ececea; --muted:#a3a39e; --line:#2c2c2a; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:48px 16px 80px; }
+  h1 { font-size:2rem; margin:0 0 4px; }
+  h2 { font-size:1.2rem; margin:36px 0 8px; padding-top:16px; border-top:1px solid var(--line); }
+  .muted { color:var(--muted); }
+  table { width:100%; border-collapse:collapse; font-size:.95rem; }
+  th, td { text-align:left; vertical-align:top; padding:8px 6px; border-bottom:1px solid var(--line); }
+  a { color:inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Atlas New Tab – Privacy Policy</h1>
+  <p class="muted">Last updated: September 25, 2026</p>
+
+  <p>Atlas New Tab ("the extension") replaces Chrome's new tab page with shortcuts, search, live wallpapers,
+  weather, a media player widget and an optional AI assistant. This policy explains what data the extension
+  handles and where it goes. We do not sell your data, use it for advertising, or use it to decide creditworthiness or lending.</p>
+
+  <h2>1. Data stored only on your device</h2>
+  <p>These settings are saved in your browser with <code>chrome.storage</code>, <code>localStorage</code> and IndexedDB.
+  They are never sent to us:</p>
+  <ul>
+    <li>Your workspaces, shortcut cards and links</li>
+    <li>Appearance settings, theme, cursor choice and chosen search engine</li>
+    <li>Wallpaper choice and any wallpaper file you upload</li>
+    <li>A city name you enter for weather</li>
+  </ul>
+  <p>Uninstalling the extension or choosing "Reset to defaults" deletes this data.</p>
+
+  <h2>2. Media playback information</h2>
+  <p>To show a "now playing" widget with play, pause and skip controls, the extension reads media details
+  from open tabs that play audio or video, such as YouTube or Spotify. These details are the track title, artist,
+  artwork, playback position and the tab's site. This information is processed only inside your browser, kept in
+  temporary session storage, and deleted when the browser closes. It is never sent to any server.</p>
+
+  <h2>3. Data sent to third-party services</h2>
+  <table>
+    <tr><th>Feature</th><th>Data sent</th><th>Sent to</th></tr>
+    <tr>
+      <td>AI assistant (optional, only when you send a message)</td>
+      <td>The messages in your current conversation</td>
+      <td>Our assistant server (hosted on Vercel), which forwards them to Google's Gemini API to generate a reply.
+      Our server does not store or log conversations. Google handles the data under the
+      <a href="https://ai.google.dev/gemini-api/terms">Gemini API Terms</a>.</td>
+    </tr>
+    <tr>
+      <td>Weather</td>
+      <td>Your approximate location (latitude/longitude, only if you allow location access) or the city name you type</td>
+      <td><a href="https://open-meteo.com/en/terms">Open-Meteo</a> for the forecast and
+      <a href="https://www.bigdatacloud.com/privacy">BigDataCloud</a> for the place name</td>
+    </tr>
+    <tr>
+      <td>Search</td>
+      <td>The text you search for</td>
+      <td>The search engine you picked, such as Google, Bing, DuckDuckGo, Brave or YouTube. Your browser opens it directly.</td>
+    </tr>
+  </table>
+  <p>Don't type sensitive personal information into the assistant.</p>
+
+  <h2>4. Permissions</h2>
+  <ul>
+    <li><strong>storage</strong>: saves your settings and layout on your device.</li>
+    <li><strong>scripting</strong> and <strong>access to websites</strong>: detect media playing in your tabs for
+    the now-playing widget, send play/pause/skip commands to it, and apply your chosen custom cursor on web pages.
+    The extension does not read, collect or send any other page content, form input or browsing history.</li>
+  </ul>
+
+  <h2>5. What we do not collect</h2>
+  <p>We do not collect names, email addresses, passwords, payment information, browsing history, analytics or
+  tracking data. The extension has no user accounts and does not use cookies for tracking.</p>
+
+  <h2>6. Children</h2>
+  <p>The extension is not directed at children under 13, and we do not knowingly collect their personal information.</p>
+
+  <h2>7. Changes</h2>
+  <p>If this policy changes, we'll update this page and the "Last updated" date.</p>
+
+  <h2>8. Contact</h2>
+  <p>Questions about this policy: <a href="mailto:CONTACT_EMAIL_HERE">CONTACT_EMAIL_HERE</a></p>
+</main>
+</body>
+</html>
