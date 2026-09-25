@@ -179,8 +179,11 @@ const SEARCH_URL = "https://www.google.com/search?q=";
    Your endpoint receives:  POST { messages: [{role, content}, ...] }
    and should reply with JSON: { reply: "..." }                    */
 const AI_CONFIG = {
-  /* the Gemini bridge in server/chat.js — start it with:  npm run assistant */
-  endpoint: "http://localhost:3001/api/chat", // <-- leave empty to keep the assistant disabled
+  /* the Gemini bridge in server/ — deployed on Vercel, so it works for anyone
+     who installs the extension. After deploying (see server/README.md) put
+     your Vercel URL here, e.g. "https://atlas-assistant.vercel.app/api/chat".
+     For local testing use "http://localhost:3001/api/chat" + npm run assistant. */
+  endpoint: "https://atlas-assistant-nine.vercel.app/api/chat", // <-- empty disables the assistant
   greeting: "Hi, I'm Atlas. Ask me anything.",
   notConfigured:
     "The assistant isn't connected yet. Add your endpoint URL in config.js (AI_CONFIG.endpoint) to enable replies.",

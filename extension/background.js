@@ -1,5 +1,6 @@
 /* ATLAS NEW TAB — background worker
-   Keeps one entry per tab that is playing (or has played) media, picks the
+   Keeps one entry per frame (tab + embedded player) that is playing (or
+   has played) media, picks the
    one to show, and pushes it to any open new tab. Stored in
    storage.session so it survives the worker going to sleep. */
 "use strict";
@@ -66,16 +67,19 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 
   if (msg.type === "media:state" && sender.tab) {
     const tab = sender.tab;
+    const frameId = sender.frameId || 0;
+    const key = tab.id + ":" + frameId;
     const data = msg.data;
     mutate((s) => {
       if (!data) {
-        if (!s[tab.id]) return false;
-        delete s[tab.id];
+        if (!s[key]) return false;
+        delete s[key];
         return;
       }
-      const prev = s[tab.id];
-      s[tab.id] = Object.assign({}, data, {
+      const prev = s[key];
+      s[key] = Object.assign({}, data, {
         tabId: tab.id,
+        frameId,
         windowId: tab.windowId,
         source: sourceName(sender.url || tab.url || ""),
         lastActive: data.playing ? Date.now() : (prev && prev.lastActive) || 0,
@@ -90,11 +94,13 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
 
   if (msg.type === "media:cmd" && typeof msg.tabId === "number") {
+    const frameId = typeof msg.frameId === "number" ? msg.frameId : 0;
+    const key = msg.tabId + ":" + frameId;
     chrome.tabs
-      .sendMessage(msg.tabId, { type: "media:cmd", action: msg.action, time: msg.time })
+      .sendMessage(msg.tabId, { type: "media:cmd", action: msg.action, time: msg.time }, { frameId })
       .catch(() => {
-        /* the tab no longer answers (closed or reloaded before the bridge) */
-        mutate((s) => { if (!s[msg.tabId]) return false; delete s[msg.tabId]; });
+        /* the frame no longer answers (closed or reloaded before the bridge) */
+        mutate((s) => { if (!s[key]) return false; delete s[key]; });
       });
     return;
   }
@@ -106,7 +112,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  mutate((s) => { if (!s[tabId]) return false; delete s[tabId]; });
+  mutate((s) => {
+    const keys = Object.keys(s).filter((k) => k.split(":")[0] === String(tabId));
+    if (!keys.length) return false;
+    keys.forEach((k) => delete s[k]);
+  });
 });
 
 /* content scripts only reach pages loaded after the extension. When it is
@@ -117,8 +127,8 @@ chrome.runtime.onInstalled.addListener(async () => {
   try { tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }); } catch { return; }
   for (const tab of tabs) {
     try {
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["media-bridge.js"], world: "MAIN" });
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["media-relay.js"] });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["media-bridge.js"], world: "MAIN" });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["media-relay.js"] });
     } catch {
       /* discarded tabs, the Web Store, chrome:// pages: skip */
     }

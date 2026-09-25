@@ -1416,7 +1416,7 @@
       setBusy(false);
       setStatus("off");
       history.pop();
-      addMsg("Couldn't reach the assistant server. Is it running? (npm run assistant)", "bot", true);
+      addMsg("Couldn't reach the assistant server. Check your connection and AI_CONFIG.endpoint in config.js.", "bot", true);
     }
     aiInput.focus();
   });
@@ -1885,7 +1885,7 @@
     const send = (msg) => {
       try { chrome.runtime.sendMessage(msg).catch(() => {}); } catch {}
     };
-    const cmd = (action, time) => now && send({ type: "media:cmd", tabId: now.tabId, action, time });
+    const cmd = (action, time) => now && send({ type: "media:cmd", tabId: now.tabId, frameId: now.frameId, action, time });
 
     const fmt = (s) => {
       s = Math.max(0, Math.floor(s || 0));
