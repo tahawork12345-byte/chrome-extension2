@@ -50,15 +50,29 @@ The starting content lives in **`config.js`**:
 
 ## AI assistant
 The ✦ chat (bottom right) is answered by Google Gemini through a small server
-in `server/chat.js`, which keeps the API key out of the extension.
+in `server/`, which keeps the API key out of the extension.
 
-1. Copy `server/.env.example` to `server/.env` and put your key in it
-   (free key: https://aistudio.google.com/apikey). `.env` is git-ignored.
+### Hosted on Vercel (works for everyone who installs the extension)
+1. On https://vercel.com click **Add New → Project** and import this GitHub repo.
+2. Set **Root Directory** to `server`. Framework preset: **Other**. No build command.
+3. Under **Environment Variables** add `GEMINI_API_KEY` (free key:
+   https://aistudio.google.com/apikey). Optional: `GEMINI_MODEL`.
+4. Deploy, then open `https://<your-project>.vercel.app/api/health`. It should
+   show `"ok": true, "keySet": true`.
+5. Set `AI_CONFIG.endpoint` in `config.js` to `https://<your-project>.vercel.app/api/chat`,
+   then reload the extension and share it.
+
+To stop other extensions from using your server, add `ALLOWED_EXTENSION_IDS`
+(comma-separated IDs from `chrome://extensions`) in Vercel. An unpacked extension
+gets a different ID on each computer, so collect your friends' IDs first.
+
+### Local (for development)
+1. Copy `server/.env.example` to `server/.env` and put your key in it.
+   `.env` is git-ignored.
 2. From the project root run `npm run assistant`. It listens on
-   `http://localhost:3001/api/chat`, the address set in `AI_CONFIG.endpoint`.
-3. Keep that terminal open while you use the assistant.
+   `http://localhost:3001/api/chat`. Point `AI_CONFIG.endpoint` there while testing.
 
-Change the model with `GEMINI_MODEL` in `server/.env`. Never put an API key in the
+Change the model with `GEMINI_MODEL`. Never put an API key in the
 extension itself. Any server works if it takes `POST { messages: [{role, content}] }`
 and returns `{ "reply": "..." }`.
 

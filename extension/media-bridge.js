@@ -3,15 +3,16 @@
    YouTube Music, YouTube, SoundCloud, Deezer, Apple Music, ...) exposes its
    track info and its own next / previous / play handlers there. This script
    reads that, and keeps a copy of the handlers so the new tab can press
-   the site's own buttons. media-relay.js carries the messages to the
+   the site's own buttons. Sites that don't use it still get picked up from
+   their playing <audio>/<video> element, with the title and artwork taken
+   from the page. Runs in every frame, so embedded players count too. media-relay.js carries the messages to the
    extension. */
 (() => {
   "use strict";
   if (window.__atlasMediaBridge) return;
   window.__atlasMediaBridge = true;
 
-  const ms = navigator.mediaSession;
-  if (!ms) return;
+  const ms = navigator.mediaSession || { setActionHandler() {}, metadata: null, playbackState: "none" };
   const TAG = "atlas-media";
 
   /* remember the handlers the site registers so they can be invoked later */
@@ -34,9 +35,75 @@
     };
   }
 
+  /* <audio>/<video> elements, including ones created with `new Audio()`
+     that never get attached to the DOM (caught through their play event) */
+  const detached = new Set();
+  document.addEventListener("play", (e) => {
+    const m = e.target;
+    if (m instanceof HTMLMediaElement && !m.isConnected) detached.add(m);
+    setTimeout(send, 0);
+  }, true);
+  document.addEventListener("pause", () => setTimeout(send, 0), true);
+  const origPlay = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function () {
+    if (!this.isConnected) detached.add(this);
+    setTimeout(send, 0);
+    return origPlay.apply(this, arguments);
+  };
+
+  /* a muted autoplaying background loop or a tiny preview isn't "playing" */
+  function audible(m) {
+    return !m.muted && m.volume > 0 && !(isFinite(m.duration) && m.duration > 0 && m.duration < 8);
+  }
+
+  function allMedia() {
+    const list = Array.from(document.querySelectorAll("audio, video"));
+    detached.forEach((m) => { if (!list.includes(m)) list.push(m); });
+    return list;
+  }
+
   function mediaEl() {
-    const all = Array.from(document.querySelectorAll("audio, video"));
-    return all.find((m) => !m.paused) || all.find((m) => m.currentTime > 0) || null;
+    const all = allMedia();
+    return all.find((m) => !m.paused && audible(m)) ||
+      all.find((m) => !m.paused) ||
+      all.find((m) => m.currentTime > 0 && audible(m)) ||
+      all.find((m) => m.currentTime > 0) || null;
+  }
+
+  /* for sites that never fill in navigator.mediaSession: build the track
+     info from the page itself */
+  function meta(prop) {
+    const el = document.querySelector(`meta[property="${prop}"], meta[name="${prop}"]`);
+    return el ? el.getAttribute("content") || "" : "";
+  }
+  function abs(u) {
+    try { return u ? new URL(u, location.href).href : ""; } catch { return ""; }
+  }
+  function pageMetadata(m) {
+    let title = meta("og:title") || meta("twitter:title") || document.title || "";
+    title = title.replace(/^\(\d+\)\s*/, "").trim();
+    const host = location.hostname.replace(/^www\./, "");
+    const site = meta("og:site_name") || host;
+    /* "Song name - Site" / "Song name | Site" -> "Song name" */
+    const parts = title.split(/\s+[-|–—•]\s+/);
+    if (parts.length > 1) {
+      const last = parts[parts.length - 1].toLowerCase();
+      if (last.includes(site.toLowerCase()) || site.toLowerCase().includes(last) || host.includes(last.replace(/\s+/g, ""))) {
+        parts.pop();
+        title = parts.join(" - ");
+      }
+    }
+    if (!title && m) {
+      const src = m.currentSrc || m.src || "";
+      try { title = decodeURIComponent(new URL(src).pathname.split("/").pop() || ""); } catch {}
+    }
+    if (!title) title = site;
+    return {
+      title,
+      artist: meta("og:audio:artist") || meta("music:musician") || meta("author") || site,
+      album: "",
+      art: abs(meta("og:image") || meta("twitter:image") || (m && m.poster) || ""),
+    };
   }
 
   function bestArt(list) {
@@ -51,15 +118,25 @@
   }
 
   function isPlaying(m) {
-    if (ms.playbackState === "playing") return true;
-    if (ms.playbackState === "paused") return false;
+    if (ms.metadata) {
+      if (ms.playbackState === "playing") return true;
+      if (ms.playbackState === "paused") return false;
+    }
     return !!(m && !m.paused);
   }
 
   function snapshot() {
-    const md = ms.metadata;
-    if (!md || !md.title) return null;
     const m = mediaEl();
+    let info;
+    const md = ms.metadata;
+    if (md && md.title) {
+      info = { title: md.title, artist: md.artist || "", album: md.album || "", art: bestArt(md.artwork) };
+    } else {
+      /* no Media Session: only report a real, audible element that has
+         actually been started, never an idle or muted one */
+      if (!m || !audible(m) || (m.paused && m.currentTime === 0)) return null;
+      info = pageMetadata(m);
+    }
     const playing = isPlaying(m);
 
     let duration = 0, position = 0, rate = 1;
@@ -73,10 +150,10 @@
     }
 
     return {
-      title: md.title,
-      artist: md.artist || "",
-      album: md.album || "",
-      art: bestArt(md.artwork),
+      title: info.title,
+      artist: info.artist,
+      album: info.album,
+      art: info.art,
       playing,
       duration,
       position,
