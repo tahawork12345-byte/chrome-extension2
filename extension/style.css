@@ -275,6 +275,10 @@ body:not(.launcher-open) .rail-btn.is-on {
   left: calc(var(--edge) + var(--rail-w) + 16px);
   top: var(--launcher-top);
   width: min(470px, 33vw);
+  /* panel + icon bubble colours; customize.js can override both */
+  --panel-rgb: var(--glass-rgb);
+  --panel-a: var(--glass-a);
+  --bubble-rgb: var(--accent-rgb);
   transform: perspective(1400px) rotateY(-8deg);
   transform-origin: left center;
   /* hidden until a rail icon opens it; it grows out from the rail.
@@ -309,7 +313,7 @@ body.launcher-open .launcher {
   background:
     radial-gradient(120% 70% at 0% 0%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 55%),
     radial-gradient(90% 60% at 100% 100%, rgba(var(--accent-rgb), 0.1), rgba(var(--accent-rgb), 0) 60%),
-    var(--surface);
+    rgba(var(--panel-rgb), var(--panel-a));
   backdrop-filter: blur(calc(18px * var(--blur-k))) saturate(1.1);
   box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.14);
   overflow: hidden;
@@ -405,22 +409,41 @@ body.launcher-open .launcher {
 .app-link:focus-visible,
 .app-add:focus-visible { outline: none; }
 
-/* round glossy "glass marble" behind each icon */
+/* a clear soap bubble behind each icon: see-through body, tinted rim,
+   an iridescent edge and a bright highlight. The darker "marble" look is
+   the Dark bubble style in customize.js */
 .app-bubble {
   position: relative;
   width: 58px;
   height: 58px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.26);
   border-radius: 50%;
   background:
-    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 42%),
-    radial-gradient(circle at 70% 85%, rgba(var(--accent-rgb), 0.18), rgba(var(--accent-rgb), 0) 55%),
-    rgba(20, 20, 26, 0.55);
-  box-shadow: 0 12px 22px -12px rgba(0, 0, 0, 0.85), inset 0 1px 1px rgba(255, 255, 255, 0.3),
-    inset 0 -6px 12px rgba(0, 0, 0, 0.35);
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.6) 0 5%, rgba(255, 255, 255, 0.16) 16%, rgba(255, 255, 255, 0) 34%),
+    radial-gradient(circle at 72% 80%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 20%),
+    radial-gradient(circle at 50% 50%, rgba(var(--bubble-rgb), 0.03) 52%, rgba(var(--bubble-rgb), 0.2) 76%, rgba(var(--bubble-rgb), 0.42) 100%),
+    rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(calc(3px * var(--blur-k))) saturate(1.3);
+  box-shadow: 0 10px 20px -12px rgba(0, 0, 0, 0.6), inset 0 0 10px rgba(255, 255, 255, 0.12),
+    inset -3px -5px 12px rgba(var(--bubble-rgb), 0.28);
   transition: transform 260ms var(--ease), box-shadow 260ms var(--ease), border-color 260ms var(--ease);
+}
+/* thin rainbow film around the rim */
+.app-bubble::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  padding: 1.5px;
+  border-radius: 50%;
+  background: conic-gradient(from 210deg, rgba(255, 130, 210, 0.55), rgba(120, 200, 255, 0.55),
+    rgba(150, 255, 200, 0.45), rgba(255, 230, 140, 0.5), rgba(255, 130, 210, 0.55));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0.55;
+  pointer-events: none;
 }
 .app-bubble::after {
   content: "";
@@ -430,7 +453,7 @@ body.launcher-open .launcher {
   right: 10px;
   height: 42%;
   border-radius: 50% 50% 45% 45% / 60% 60% 40% 40%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0));
   pointer-events: none;
 }
 .app-icon { width: 28px; height: 28px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4)); }
@@ -466,9 +489,9 @@ body.launcher-open .launcher {
 .app-link:focus-visible .app-bubble,
 .app-add:focus-visible .app-bubble {
   transform: translateY(-3px) scale(1.06);
-  border-color: rgba(var(--accent-rgb), 0.5);
-  box-shadow: 0 16px 26px -12px rgba(0, 0, 0, 0.9), 0 0 22px -4px rgba(var(--accent-rgb), 0.55),
-    inset 0 1px 1px rgba(255, 255, 255, 0.35), inset 0 -6px 12px rgba(0, 0, 0, 0.3);
+  border-color: rgba(var(--bubble-rgb), 0.6);
+  box-shadow: 0 16px 26px -12px rgba(0, 0, 0, 0.7), 0 0 22px -4px rgba(var(--bubble-rgb), 0.6),
+    inset 0 0 12px rgba(255, 255, 255, 0.18), inset -3px -5px 12px rgba(var(--bubble-rgb), 0.35);
 }
 .app-link:hover .app-name,
 .app-add:hover .app-name { color: var(--ink); }
@@ -481,6 +504,7 @@ body.launcher-open .launcher {
   font-size: 24px;
   font-weight: 300;
 }
+.app-add .app-bubble::before { display: none; }
 .app .dots {
   position: absolute;
   top: 0;
@@ -1666,6 +1690,44 @@ body.is-dragging .launcher-grid { padding-bottom: 62px; }
 }
 .cz-wp:hover { background: rgba(255, 255, 255, 0.1); color: var(--ink); }
 .cz-wp.is-on { border-color: var(--accent); color: var(--ink); background: rgba(var(--accent-rgb), 0.16); }
+
+/* cursor packs: each tile shows the normal and the pointer cursor */
+.cz-cursors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cz-cur {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: border-color 160ms var(--ease), color 160ms var(--ease), transform 160ms var(--ease);
+}
+.cz-cur:hover { color: var(--ink); transform: translateY(-1px); background: rgba(255, 255, 255, 0.08); }
+.cz-cur.is-on { border-color: var(--accent); color: var(--ink); background: rgba(var(--accent-rgb), 0.14); }
+.cz-cur-pics { height: 28px; display: flex; align-items: center; gap: 6px; }
+.cz-cur-pics img { width: 26px; height: 26px; object-fit: contain; }
+.cz-cur-sys { font-size: 20px; line-height: 1; color: var(--ink-soft); }
+.cz-cur.is-add { border-style: dashed; }
+.cz-cur-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the cursor being edited, drawn large on a checkerboard so any colour reads */
+.cz-cur-big {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  padding: 12px;
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: repeating-conic-gradient(rgba(255, 255, 255, 0.07) 0 25%, rgba(0, 0, 0, 0.12) 0 50%) 0 0 / 16px 16px;
+}
+.cz-cur-big img { width: 56px; height: 56px; }
+.cz-cur-thumb { width: 28px; height: 28px; object-fit: contain; align-self: center; }
 
 /* collapsible widget cards; the switch in the header shows / hides the widget */
 .cz-card {

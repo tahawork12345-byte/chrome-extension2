@@ -36,3 +36,4 @@ extension/wallpapers/old.mp4
 .env
 .env.*
 !.env.example
+store-assets/*.zip

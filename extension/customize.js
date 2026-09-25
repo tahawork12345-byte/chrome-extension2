@@ -59,10 +59,20 @@
       tilt: true,
       motion: true,
     },
+    /* cursors.js owns this shape: a library of uploads + a look per cursor */
+    cursor: window.AtlasCursors ? AtlasCursors.defaults() : { style: "default" },
     widgets: {
       clock: widget({ h24: false, date: true, meridiem: true }),
       weather: { show: true, units: cfgUnits },
-      dock: { show: true, side: "left", y: 0, width: 470, icon: 58, labels: true },
+      dock: {
+        show: true, side: "left", y: 0, width: 470, icon: 58, labels: true,
+        bubble: "glass", // glass | dark
+        bubbleMatch: true,
+        bubbleColor: "#7cc4ff",
+        panelMatch: true,
+        panelColor: "#121216",
+        panelAlpha: 40,
+      },
       search: widget({ engine: "google", customUrl: "" }),
       media: widget(),
       wallpaper: widget(),
@@ -135,6 +145,14 @@
       else if (typeof o === typeof b && (typeof o !== "number" || isFinite(o))) base[k] = o;
     });
     return base;
+  }
+
+  /* merge() only knows fixed keys; the cursor library (a list, and looks
+     keyed by cursor id) is checked by cursors.js instead */
+  function load(over) {
+    const next = merge(clone(DEFAULTS), over);
+    if (window.AtlasCursors) next.cursor = AtlasCursors.normalize(over && over.cursor);
+    return next;
   }
 
   let settings = clone(DEFAULTS);
@@ -397,6 +415,28 @@
     }
     if (!dock.labels) css.push(".app-name{display:none}");
 
+    /* launcher box colour and icon bubbles */
+    const dockVars = [];
+    if (!dock.panelMatch) {
+      dockVars.push(
+        "--panel-rgb:" + rgb(hex(dock.panelColor, DEFAULTS.widgets.dock.panelColor)),
+        "--panel-a:" + num(dock.panelAlpha, 0, 100, 40) / 100
+      );
+    }
+    if (!dock.bubbleMatch) dockVars.push("--bubble-rgb:" + rgb(hex(dock.bubbleColor, accent)));
+    if (dockVars.length) css.push(".launcher{" + dockVars.join(";") + "}");
+    if (dock.bubble === "dark") {
+      css.push(
+        ".app-bubble{border-color:rgba(255,255,255,.14);backdrop-filter:none;background:" +
+          "radial-gradient(circle at 32% 24%,rgba(255,255,255,.3),rgba(255,255,255,0) 42%)," +
+          "radial-gradient(circle at 70% 85%,rgba(var(--bubble-rgb),.18),rgba(var(--bubble-rgb),0) 55%)," +
+          "rgba(20,20,26,.55);box-shadow:0 12px 22px -12px rgba(0,0,0,.85),inset 0 1px 1px rgba(255,255,255,.3)," +
+          "inset 0 -6px 12px rgba(0,0,0,.35)}",
+        ".app-bubble::before{display:none}",
+        ".app-add .app-bubble{border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.05)}"
+      );
+    }
+
     /* the assistant's chat box */
     const ai = w.ai;
     const aiVars = [];
@@ -424,6 +464,9 @@
         ".trace{display:none}"
       );
     }
+
+    /* --- cursor --- */
+    if (window.AtlasCursors) css.push(AtlasCursors.css(s.cursor, accent));
 
     if (desktop.length) css.push("@media (min-width:721px){" + desktop.join("") + "}");
     return css.join("\n");
@@ -460,7 +503,7 @@
 
   /* many values changed at once (preset, reset, import) */
   function replace(next) {
-    settings = merge(clone(DEFAULTS), next);
+    settings = load(next);
     applyCss();
     save();
     emit("*");
@@ -716,6 +759,58 @@
       },
     },
     {
+      id: "cursor",
+      label: "Cursor",
+      reset: "cursor",
+      render: () => {
+        const cur = settings.cursor;
+        const st = cur.style;
+        const idx = st.startsWith("custom:") ? cur.custom.findIndex((c) => "custom:" + c.id === st) : -1;
+        const item = cur.custom[idx];
+        const pack = AtlasCursors.PACKS.find((p) => p.id === st);
+        const out = [
+          group("Packs", cursorTiles("packs")),
+          group("My cursors",
+            note("Upload as many as you like (up to " + AtlasCursors.MAX_CUSTOM + "). Any picture works — PNG, GIF, SVG or WebP."),
+            cursorTiles("custom")),
+        ];
+
+        if (st !== "default") {
+          out.push(group("Colours · " + (item ? item.name : pack ? pack.label : ""), ...cursorLookRows(st, item ? item.id : st, !item)));
+        }
+        if (item) {
+          const base = "cursor.custom." + idx;
+          const name = h("input", {
+            class: "cz-text", type: "text", value: item.name, maxlength: 40, spellcheck: "false", "aria-label": "Name",
+            onchange: () => { set(base + ".name", name.value.trim().slice(0, 40) || "My cursor"); renderTab(); },
+          });
+          out.push(group("This cursor",
+            row("Name", name, { stack: true }),
+            cursorUploadRow("Normal", base + ".normal", false),
+            cursorUploadRow("Pointer (links & buttons)", base + ".pointer", true),
+            segRow("Click point", base + ".hot", [["tip", "Top-left"], ["center", "Centre"]]),
+            h("div", { class: "cz-btns" },
+              h("button", {
+                type: "button", class: "cz-btn is-danger", text: "Delete cursor",
+                onclick: () => {
+                  if (!confirm("Delete \u201c" + item.name + "\u201d?")) return;
+                  delete cur.looks[item.id];
+                  cur.custom.splice(idx, 1);
+                  cur.style = "default";
+                  set("cursor.custom", cur.custom);
+                  renderTab();
+                },
+              }))));
+        }
+
+        out.push(group("Options",
+          rangeRow("Size", "cursor.size", 16, 96, 2, "px"),
+          toggleRow("Use on all websites", "cursor.everywhere"),
+          note("Open tabs switch right away. Chrome's own pages (settings, the Web Store) always keep the system cursor, and sizes over 32px turn back to the normal cursor near the window edge.")));
+        return out;
+      },
+    },
+    {
       id: "widgets",
       label: "Widgets",
       reset: "widgets",
@@ -734,7 +829,13 @@
           rangeRow("Move down", "widgets.dock.y", -100, 400, 2, "px"),
           rangeRow("Panel width", "widgets.dock.width", 300, 900, 10, "px"),
           rangeRow("Icon size", "widgets.dock.icon", 36, 96, 2, "px"),
-          toggleRow("Show names", "widgets.dock.labels")),
+          toggleRow("Show names", "widgets.dock.labels"),
+          segRow("Icon bubbles", "widgets.dock.bubble", [["glass", "Glass bubble"], ["dark", "Dark"]]),
+          toggleRow("Bubbles use accent", "widgets.dock.bubbleMatch"),
+          colorRow("Bubble colour", "widgets.dock.bubbleColor", { when: (s) => !s.widgets.dock.bubbleMatch }),
+          toggleRow("Box uses theme glass", "widgets.dock.panelMatch"),
+          colorRow("Box colour", "widgets.dock.panelColor", { when: (s) => !s.widgets.dock.panelMatch }),
+          rangeRow("Box opacity", "widgets.dock.panelAlpha", 0, 100, 1, "%", { when: (s) => !s.widgets.dock.panelMatch })),
         card("search", "Search bar", "widgets.search.show",
           selectRow("Engine", "widgets.search.engine", Object.entries(ENGINES).map(([k, e]) => [k, e.label])),
           textRow("Search URL", "widgets.search.customUrl", "https://example.com/search?q=%s",
@@ -771,7 +872,7 @@
             f.text().then((text) => {
               const data = JSON.parse(text);
               const s = data && (data.settings || data);
-              if (!s || typeof s !== "object" || !(s.theme || s.widgets || s.background || s.lighting)) throw new Error("shape");
+              if (!s || typeof s !== "object" || !(s.theme || s.widgets || s.background || s.lighting || s.cursor)) throw new Error("shape");
               replace(s);
               say("Settings imported.");
             }).catch(() => say("That file isn't an Atlas settings export.", true));
@@ -808,6 +909,168 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  /* ---- cursor helpers ---- */
+  const accentNow = () => settings.theme.accent;
+  const cursorPic = (style, state) => {
+    const img = h("img", { alt: "", "data-style": style, "data-state": state });
+    img.src = AtlasCursors.preview(settings.cursor, style, accentNow(), state);
+    return img;
+  };
+  /* redraw every preview after a colour change, without rebuilding rows */
+  function refreshCursorPics() {
+    body.querySelectorAll("img[data-style]").forEach((img) => {
+      img.src = AtlasCursors.preview(settings.cursor, img.dataset.style, accentNow(), img.dataset.state);
+    });
+  }
+
+  /* the packs, or the user's own cursors plus an Add tile */
+  function cursorTiles(which) {
+    const wrap = h("div", { class: "cz-cursors", role: "radiogroup", "aria-label": which === "packs" ? "Cursor packs" : "My cursors" });
+    const tile = (style, label, pics) => {
+      const on = settings.cursor.style === style;
+      return h("button", {
+        type: "button", class: "cz-cur" + (on ? " is-on" : ""), role: "radio", "aria-checked": String(on),
+        onclick: () => { set("cursor.style", style); renderTab(); },
+      }, h("span", { class: "cz-cur-pics", "aria-hidden": "true" }, ...pics), h("span", { class: "cz-cur-name", text: label }));
+    };
+    if (which === "packs") {
+      AtlasCursors.PACKS.forEach((p) => {
+        wrap.append(tile(p.id, p.label, p.id === "default"
+          ? [h("span", { class: "cz-cur-sys", text: "↖" })]
+          : [cursorPic(p.id, "normal"), cursorPic(p.id, "pointer")]));
+      });
+      return wrap;
+    }
+    settings.cursor.custom.forEach((c) => {
+      const st = "custom:" + c.id;
+      wrap.append(tile(st, c.name, [cursorPic(st, "normal"), c.pointer ? cursorPic(st, "pointer") : null]));
+    });
+    if (settings.cursor.custom.length < AtlasCursors.MAX_CUSTOM) {
+      wrap.append(h("button", {
+        type: "button", class: "cz-cur is-add",
+        onclick: () => cursorFile((url) => {
+          const list = settings.cursor.custom;
+          const id = AtlasCursors.newId();
+          list.push({ id, name: "Cursor " + (list.length + 1), normal: url, pointer: "", hot: "tip" });
+          set("cursor.custom", list);
+          set("cursor.style", "custom:" + id);
+          renderTab();
+        }),
+      }, h("span", { class: "cz-cur-pics", "aria-hidden": "true" }, h("span", { class: "cz-cur-sys", text: "+" })),
+        h("span", { class: "cz-cur-name", text: "Add cursor" })));
+    }
+    return wrap;
+  }
+
+  /* colour + effect controls for one cursor's look. Values are read through
+     lookFor() so an untouched cursor shows its own colours */
+  function cursorLookRows(style, id, isPack) {
+    const look = () => AtlasCursors.lookFor(settings.cursor, id, accentNow());
+    const put = (key, v) => {
+      const looks = settings.cursor.looks;
+      looks[id] = Object.assign({}, looks[id], { [key]: v });
+      set("cursor.looks", looks);
+      refreshCursorPics();
+    };
+    const colour = (label, key) => {
+      const v = look()[key];
+      const code = h("span", { class: "cz-hex", text: v });
+      const swatch = h("label", { class: "cz-color", title: label });
+      swatch.style.background = v;
+      const input = h("input", {
+        type: "color", value: v, "aria-label": label,
+        oninput: () => { put(key, input.value); swatch.style.background = input.value; code.textContent = input.value; },
+      });
+      swatch.append(input);
+      return row(label, h("span", { class: "cz-ctl" }, code, swatch));
+    };
+    const range = (label, key, min, max, step, unit) => {
+      const out = h("span", { class: "cz-val", text: look()[key] + unit });
+      const input = h("input", {
+        class: "cz-range", type: "range", min, max, step, value: look()[key], "aria-label": label,
+        oninput: () => { put(key, Number(input.value)); out.textContent = input.value + unit; },
+      });
+      return row(label, h("span", { class: "cz-ctl" }, input, out));
+    };
+    const L = look();
+    const tint = h("input", {
+      class: "cz-switch", type: "checkbox", role: "switch", "aria-label": "Tint with one colour",
+      onchange: () => { put("tintOn", tint.checked); renderTab(); },
+    });
+    tint.checked = L.tintOn;
+
+    const rows = [h("div", { class: "cz-cur-big", "aria-hidden": "true" }, cursorPic(style, "normal"), cursorPic(style, "pointer"))];
+    if (isPack) {
+      rows.push(
+        colour("Cursor colour", "fill"),
+        colour("Cursor outline", "stroke"),
+        colour("Pointer colour", "pFill"),
+        colour("Pointer outline", "pStroke"));
+    }
+    rows.push(
+      row("Tint with one colour", tint),
+      L.tintOn ? colour("Tint colour", "tint") : null,
+      L.tintOn ? null : range("Hue shift", "hue", 0, 360, 5, "°"),
+      L.tintOn ? null : range("Saturation", "sat", 0, 250, 5, "%"),
+      range("Brightness", "bright", 30, 200, 5, "%"),
+      range("Glow", "glow", 0, 8, 1, ""),
+      colour("Glow colour", "glowColor"),
+      h("div", { class: "cz-btns" },
+        h("button", {
+          type: "button", class: "cz-btn", text: "Reset colours",
+          onclick: () => {
+            delete settings.cursor.looks[id];
+            set("cursor.looks", settings.cursor.looks);
+            renderTab();
+          },
+        })));
+    return rows.filter(Boolean);
+  }
+
+  /* pick an image, shrink it to 128px (Chrome's cursor limit) and hand back
+     a PNG data URL */
+  function cursorFile(done) {
+    const input = h("input", { type: "file", accept: "image/*,.svg", hidden: true });
+    input.addEventListener("change", () => {
+      const f = input.files[0];
+      input.remove();
+      if (!f || !/^image\//.test(f.type)) return;
+      const url = URL.createObjectURL(f);
+      const img = new Image();
+      img.onload = () => {
+        const max = 128;
+        const iw = img.naturalWidth || max;
+        const ih = img.naturalHeight || max;
+        const k = Math.min(1, max / Math.max(iw, ih));
+        const w = Math.max(1, Math.round(iw * k));
+        const ht = Math.max(1, Math.round(ih * k));
+        const c = document.createElement("canvas");
+        c.width = c.height = Math.max(w, ht);
+        c.getContext("2d").drawImage(img, (c.width - w) / 2, (c.height - ht) / 2, w, ht);
+        URL.revokeObjectURL(url);
+        done(c.toDataURL("image/png"));
+      };
+      img.onerror = () => URL.revokeObjectURL(url);
+      img.src = url;
+    });
+    document.body.append(input);
+    input.click();
+  }
+  function cursorUploadRow(label, path, optional) {
+    const has = !!getPath(settings, path);
+    return row(label, h("div", { class: "cz-btns" },
+      has ? h("img", { class: "cz-cur-thumb", src: getPath(settings, path), alt: "" }) : null,
+      h("button", {
+        type: "button", class: "cz-btn" + (has ? "" : " is-primary"), text: has ? "Replace…" : "Upload…",
+        onclick: () => cursorFile((url) => { set(path, url); renderTab(); }),
+      }),
+      has && optional ? h("button", {
+        type: "button", class: "cz-btn", text: "Remove",
+        onclick: () => { set(path, ""); renderTab(); },
+      }) : null,
+      !has && optional ? h("span", { class: "cz-file", text: "Uses the normal image" }) : null), { stack: true });
   }
 
   /* the built-in live wallpapers; picking one hands over to app.js */
@@ -885,6 +1148,8 @@
       if (!tab || !tab.reset) return;
       const next = clone(settings);
       next[tab.reset] = clone(DEFAULTS[tab.reset]);
+      /* resetting the cursor tab keeps the cursors you uploaded */
+      if (tab.reset === "cursor") next.cursor.custom = clone(settings.cursor.custom);
       if (tab.reset === "background") media.clear();
       replace(next);
     },
@@ -966,7 +1231,7 @@
   const ready = store.get(KEY).then((raw) => {
     try {
       const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-      if (data && data.settings) settings = merge(clone(DEFAULTS), data.settings);
+      if (data && data.settings) settings = load(data.settings);
     } catch {}
     applyCss();
     return settings;
