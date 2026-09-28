@@ -20,7 +20,7 @@
     <!-- TOP LEFT: clock + weather -->
     <header class="clock">
       <div class="clock-main">
-        <div class="clock-time"><span id="time">--:--</span><span class="meridiem" id="meridiem">AM</span></div>
+        <div class="clock-time" translate="no"><span id="time">--:--</span><span class="meridiem" id="meridiem">AM</span></div>
         <div class="clock-date" id="date"></div>
       </div>
       <button type="button" class="weather" id="weather" aria-label="Weather. Click to set your city">
@@ -57,12 +57,25 @@
     <!-- BOTTOM CENTER: search -->
     <form class="search" id="search" autocomplete="off">
       <svg class="trace" aria-hidden="true"><rect class="trace-line" pathLength="100"/></svg>
-      <span class="search-glyph" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
-      </span>
+      <!-- engine picker: shows the engine the next search goes to -->
+      <button type="button" class="search-engine" id="searchEngine" aria-haspopup="menu" aria-expanded="false" aria-label="Search engine: Google">
+        <span class="search-engine-icon" id="searchEngineIcon" aria-hidden="true"></span>
+        <svg class="search-engine-caret" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+      </button>
       <input id="q" type="text" placeholder="Search Google..." aria-label="Search Google" />
+      <!-- voice typing (Customize > Language) -->
+      <button type="button" class="search-hist search-mic" id="searchMic" aria-pressed="false" aria-label="Search by voice" title="Search by voice" hidden>
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+      </button>
+      <!-- search history lives in its own panel, never under the field -->
+      <button type="button" class="search-hist" id="searchHist" aria-haspopup="dialog" aria-expanded="false" aria-label="Search history" title="Search history">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v3.2h3.2"/><path d="M12 8.2V12l2.6 1.7"/></svg>
+      </button>
       <button type="submit" class="search-go" aria-label="Search">↵</button>
     </form>
+    <!-- search bar pop-ups (outside the bar, so its blur doesn't clip them) -->
+    <div class="sx-menu" id="engineMenu" role="menu" aria-label="Search engines" hidden></div>
+    <div class="sx-hist" id="histPanel" role="dialog" aria-label="Search history" hidden></div>
 
     <!-- NOW PLAYING (bottom left, above the wallpaper toggle) -->
     <section class="media" id="media" aria-label="Now playing" hidden>
@@ -179,6 +192,12 @@
             <span class="ai-name">Atlas</span>
             <span class="ai-status" id="aiStatus"><i aria-hidden="true"></i><span id="aiStatusText">Online</span></span>
           </span>
+          <button type="button" class="ai-icon-btn" id="aiTalk" aria-pressed="false" aria-label="Talk mode" title="Talk mode — speak and hear answers" hidden>
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg>
+          </button>
+          <button type="button" class="ai-icon-btn" id="aiVoice" aria-haspopup="dialog" aria-expanded="false" aria-label="Voice and language" title="Voice and language" hidden>
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+          </button>
           <button type="button" class="ai-icon-btn" id="aiClear" aria-label="Clear chat" title="Clear chat">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6.5 7l1 12h9l1-12"/></svg>
           </button>
@@ -190,18 +209,28 @@
         <form class="ai-form" id="aiForm">
           <div class="ai-field">
             <textarea id="aiInput" rows="1" placeholder="Ask Atlas anything&hellip;" aria-label="Message assistant"></textarea>
+            <button type="button" class="ai-mic" id="aiMic" aria-pressed="false" aria-label="Voice typing" title="Voice typing" hidden>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+            </button>
             <button type="submit" class="ai-send" id="aiSend" aria-label="Send">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
             </button>
           </div>
-          <div class="ai-hint">Enter to send &middot; Shift + Enter for a new line</div>
+          <div class="ai-hint" id="aiHint">Enter to send &middot; Shift + Enter for a new line</div>
         </form>
       </div>
     </div>
 
     <script src="config.js"></script>
+    <script src="languages.js"></script>
+    <script src="voice.js"></script>
     <script src="cursors.js"></script>
+    <script src="schedule.js"></script>
+    <script src="sounds.js"></script>
+    <script src="vault.js"></script>
     <script src="customize.js"></script>
     <script src="app.js"></script>
+    <script src="reminders.js"></script>
+    <script src="translate.js"></script>
   </body>
 </html>

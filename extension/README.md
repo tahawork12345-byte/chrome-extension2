@@ -28,15 +28,64 @@ or by right-clicking the bare wallpaper. Every change applies live and is saved.
 - **Theme** — presets, accent / text / glass colours, glass opacity, blur,
   borders, roundness, font
 - **Background** — a live wallpaper, your own image or video, a solid colour or a
-  gradient; brightness, saturation, blur, dim, drift, playback speed
+  gradient; brightness, saturation, blur, dim, drift, playback speed. A
+  **Schedule** switches the live wallpaper by itself: once on a date, daily,
+  on chosen weekdays, monthly or yearly, at a time. The latest change whose
+  time has come decides; picking a wallpaper by hand holds until the next one
 - **Lighting** — the border light (colour, speed, length, brightness), orbs,
-  3D tilt, animations
+  3D tilt, animations, and the panel's own transition (Glide, Unfold,
+  Curtain, Zoom or Fade, with a duration and a Preview button)
 - **Widgets** — show / hide, position (9 anchors + nudge), and size for the clock,
   search bar, now playing, wallpaper button, Quick Peek and assistant; dock side,
   width and icon size; 24-hour clock, date, °C / °F, search engine
+- **Search bar** — pick the engine from the icon on the bar's left (Google,
+  YouTube, GitHub, Wikipedia, ChatGPT, Amazon, Bing, DuckDuckGo, Brave, or
+  your own custom engines, added under Widgets → Search bar). Send a single
+  search elsewhere with a keyword: `!yt cats`, `!gh react`, `!w Tokyo`.
+  Past searches are in their own panel (the clock button) — filter, re-run,
+  edit, delete or clear them; "Remember searches" turns history off
+- **Privacy** — a password-locked private space: a workspace of its own
+  (sections, shortcuts, a Notes tab and "Save open tabs") that stays off the
+  dock until unlocked. Its content is encrypted (PBKDF2 + AES-GCM, `vault.js`);
+  the password can't be recovered. Options: lock button on the dock, stay
+  unlocked until Chrome closes, lock when idle, change password, delete
 - **Backup** — export / import settings as JSON, or reset everything
 
 The code is in `customize.js`; uploaded background files are kept in IndexedDB.
+
+## Reminders
+The bell on the dock (or Command Center → "New Reminder") opens Reminders:
+alarms once, daily, on weekdays, monthly or every year — a birthday, say.
+They ring anywhere in Chrome, with or without a new tab open: the background
+worker (`background.js`) keeps a `chrome.alarms` alarm per reminder and rings
+with a system notification (Snooze / Dismiss) plus a looping alarm sound,
+played from an offscreen page (`alarm.html`). Open new tabs also show a card.
+A reminder missed while Chrome was closed rings late (up to 12 hours).
+Sounds: Chime, Bell, Digital, Soft pulse, or your own audio file (kept in
+IndexedDB); each reminder can use the default, another sound, or be silent.
+Dates and repeats are computed by `schedule.js`, shared with the wallpaper
+schedule.
+
+## Language & voice
+Customize → **Language** (or Command Center → "Language & Translation").
+- **Translate** — pick a language and every website you open is translated
+  into it, plus the new tab itself (`translate.js`, a content script; the
+  words go through Google Translate from `background.js`). Content that
+  loads later is translated as it arrives. A small badge on each page offers
+  **Show original** and **Never here**; pages already in that language are
+  left alone. Chrome's *own* menus can't be changed by an extension — the
+  "Chrome's own language…" button opens `chrome://settings/languages`.
+- **Voice typing** — a mic on the search bar (searches when you stop
+  talking) and in the assistant. "Listen for" sets the spoken language.
+  Uses Chrome's speech recognition, which sends the audio to Google. If the
+  microphone is blocked, "Allow microphone…" opens `mic.html` to ask again.
+- **Assistant voice** — the answer language, "Read answers out loud", five
+  suggested voices (Atlas, Sage, Spark, Narrator, Soft) and your own custom
+  voices (any system voice + speed, pitch, volume). In the chat, the
+  waveform button is **talk mode** (speak → answer is read out → it listens
+  again), the speaker button has the quick voice settings, and every answer
+  has its own play button. Voices come from the computer (`voice.js`), so
+  the list differs between Windows, macOS and ChromeOS.
 
 ## Customize (defaults in config.js)
 The starting content lives in **`config.js`**:
@@ -97,4 +146,9 @@ are outside the browser and are not shown.
   websites"; the scripts only read media metadata and never send anything
   outside the browser.
 
-Everything works offline except Google search and the optional assistant.
+- The translator content script (`languages.js`, `translate.js`) does
+  nothing until a language is picked; then it sends page text to Google
+  Translate.
+
+Everything works offline except Google search, translation, voice typing
+and the optional assistant.
