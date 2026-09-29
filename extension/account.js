@@ -197,8 +197,11 @@
     openTab(url);
   }
 
-  /* Pro, as far as this computer knows (the server re-checks every Pro call) */
+  /* Pro, as far as this computer knows (the server re-checks every Pro call).
+     While everything is free (PRO_CONFIG.allFree), everyone counts as Pro. */
+  const allFree = typeof PRO_CONFIG !== "undefined" && !!PRO_CONFIG.allFree;
   function isPro() {
+    if (allFree) return true;
     const u = session && session.user;
     return !!(u && u.plan === "PRO" && (!u.planExpiresAt || new Date(u.planExpiresAt) > new Date()));
   }
@@ -209,6 +212,7 @@
     user: () => (session ? session.user : null),
     signedIn: () => !!session,
     isPro,
+    allFree,
     on: (fn) => listeners.push(fn),
     signIn,
     signOut,

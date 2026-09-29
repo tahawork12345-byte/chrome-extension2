@@ -12,9 +12,9 @@ const url = (path) => (/^https:\/\//.test(path) ? path : `${env.wallpaperCdn}/${
    video }], pro }. Anyone sees the list and the thumbnails; the video link
    is only in the answer for Pro. Signed out (or an expired token) = free. */
 wallpapersRouter.get("/wallpapers", async (req, res) => {
-  let pro = false;
+  let pro = env.allFree; // everything free: the videos for everyone, signed in or not
   const m = /^Bearer (.+)$/.exec(req.headers.authorization || "");
-  if (m) {
+  if (m && !pro) {
     try {
       const payload = verifyAccessToken(m[1]);
       const user = await prisma.user.findUnique({ where: { id: payload.sub } });

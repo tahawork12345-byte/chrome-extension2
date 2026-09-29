@@ -403,6 +403,7 @@ function blockerApplies(b, now, pausedUntil) {
 }
 
 let blChain = Promise.resolve();
+let blSites = []; // what's blocked right now, for the tab watcher
 function syncBlocker() {
   blChain = blChain.then(syncBlockerNow, syncBlockerNow).catch((e) => console.error("blocker:", e));
   return blChain;
@@ -418,8 +419,10 @@ async function syncBlockerNow() {
   const on = blockerApplies(b, now, pausedUntil) ||
     !!(b && b.sites.length && focusBlocks(o[FOCUS_KEY], readFocus(o.appearance)));
   const sites = on ? b.sites.filter((d) => typeof d === "string" && /^[a-z0-9.-]+$/.test(d)).slice(0, BL_MAX) : [];
+  blSites = sites;
 
   const old = await chrome.declarativeNetRequest.getDynamicRules();
+  /* a failed rule update is logged, not fatal: the tab watcher below still blocks */
   await chrome.declarativeNetRequest.updateDynamicRules({
     removeRuleIds: old.filter((r) => r.id >= BL_FIRST_ID && r.id < BL_FIRST_ID + BL_MAX).map((r) => r.id),
     addRules: sites.map((d, i) => ({
@@ -428,7 +431,7 @@ async function syncBlockerNow() {
       action: { type: "redirect", redirect: { extensionPath: "/blocked.html#" + d } },
       condition: { requestDomains: [d], resourceTypes: ["main_frame"] },
     })),
-  });
+  }).catch((e) => console.error("blocker rules:", e));
 
   /* tabs already open on a blocked site close up too */
   if (sites.length) {
@@ -448,6 +451,21 @@ async function syncBlockerNow() {
 }
 
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === BL_ALARM) syncBlocker(); });
+
+/* a second line behind the rules: a tab that still reaches a blocked site
+   (a rule that didn't apply, a page loaded from cache) is sent away too */
+const blockedSiteOf = (url) => {
+  let host = "";
+  try { const u = new URL(url); if (!/^https?:$/.test(u.protocol)) return ""; host = u.hostname.replace(/^www\./, ""); } catch { return ""; }
+  return blSites.find((s) => host === s || host.endsWith("." + s)) || "";
+};
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (!info.url) return;
+  blChain.then(() => {
+    const d = blockedSiteOf(info.url);
+    if (d) chrome.tabs.update(tabId, { url: chrome.runtime.getURL("blocked.html#" + d) }).catch(() => {});
+  });
+});
 
 let blTimer = 0;
 chrome.storage.onChanged.addListener((changes, area) => {

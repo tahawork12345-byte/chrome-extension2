@@ -22,7 +22,7 @@
   const hasChrome = typeof chrome !== "undefined" && chrome.storage && chrome.storage.local;
   if (!A || !hasChrome) return;
 
-  const KEYS = ["appearance", "layout", "qt:tasks", "qt:habits", "reminders", "alarmPrefs", "focus:history", "vault"];
+  const KEYS = ["appearance", "layout", "qt:tasks", "qt:habits", "qt:sessions", "reminders", "alarmPrefs", "focus:history", "vault"];
   const RELOAD_KEYS = ["appearance", "layout", "vault"];
   const META = "sync:meta";
   const PUSHED = "sync:pushed";

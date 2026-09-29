@@ -4,6 +4,7 @@
   "version": "1.0.1",
   "description": "A calm, editorial new tab with cinematic live wallpapers, shortcut cards, search and a compact assistant.",
   "permissions": ["storage", "scripting", "alarms", "notifications", "offscreen", "identity", "declarativeNetRequestWithHostAccess", "idle"],
+  "optional_permissions": ["management"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "chrome_url_overrides": {
     "newtab": "index.html"

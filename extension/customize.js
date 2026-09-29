@@ -135,9 +135,10 @@
     minimal: {
       mode: "off",
       rules: [],
-      keep: { clock: true, weather: false, search: true, dock: false, media: false, wallpaper: false, peek: false, ai: false, quote: false },
+      keep: { clock: true, weather: false, search: false, dock: false, media: false, wallpaper: false, peek: false, ai: false, quote: false },
       dim: 0,          // extra darkening of the background, %
       exit: true,      // the small "Minimal · Exit" button
+      v: 2,            // 2: the search bar hides too (it used to stay by default)
     },
     /* the full-screen Zen clock (zen.js) and its own menu */
     zen: {
@@ -312,6 +313,9 @@
     next.zen.places = normalizePlaces(over && over.zen && over.zen.places);
     if (!["off", "on", "auto"].includes(next.minimal.mode)) next.minimal.mode = "off";
     next.minimal.rules = normalizeMinRules(over && over.minimal && over.minimal.rules);
+    /* settings saved before v2 kept the search bar only because it was the default */
+    if (over && over.minimal && !(over.minimal.v >= 2)) next.minimal.keep.search = false;
+    next.minimal.v = 2;
     next.quotes.custom = normalizeQuotes(over && over.quotes && over.quotes.custom);
     if (!["builtin", "mine", "both"].includes(next.widgets.quote.source)) next.widgets.quote.source = "both";
     if (!["day", "tab"].includes(next.widgets.quote.every)) next.widgets.quote.every = "day";
@@ -730,11 +734,20 @@
     }
 
     /* --- cursor --- */
-    if (window.AtlasCursors) css.push(AtlasCursors.css(s.cursor, accent));
+    if (window.AtlasCursors) {
+      const cur = AtlasCursors.css(s.cursor, accent);
+      cursorOn = !!cur;
+      AtlasCursors.preload(cur);
+      css.push(cur);
+    }
 
     if (desktop.length) css.push("@media (min-width:721px){" + desktop.join("") + "}");
     return css.join("\n");
   }
+
+  /* a skin is on: the page's own pointer / default elements get it too */
+  let cursorOn = false;
+  if (window.AtlasCursors) AtlasCursors.watch(() => cursorOn);
 
   let cssRaf = 0;
   function applyCss() {
@@ -1164,6 +1177,11 @@
       render: () => languageTab(),
     },
     {
+      id: "notes",
+      label: "Notes",
+      render: () => notesTab(),
+    },
+    {
       id: "privacy",
       label: "Privacy",
       render: () => privacyTab(),
@@ -1452,7 +1470,7 @@
       btn.innerHTML = GOOGLE_G;
       btn.append(" Sign in with Google");
       return [group("Google account",
-        note("Sign in to keep your settings and shortcuts in your account, bring them to another computer, and manage Atlas Pro."),
+        note("Sign in to keep your settings and shortcuts in your account and bring them to another computer" + (Acc.allFree ? "." : ", and manage Atlas Pro.")),
         h("div", { class: "cz-btns" }, btn),
         msg)];
     }
@@ -1515,7 +1533,7 @@
       planBadge.textContent = u.plan === "PRO" ? "Pro" : "Free";
       planBadge.classList.toggle("is-pro", u.plan === "PRO");
       const ai = usage && usage.ai;
-      const bits = [u.plan === "PRO" ? "Atlas Pro" : "Free plan"];
+      const bits = [u.plan === "PRO" ? "Atlas Pro" : Acc.allFree ? "Everything in Atlas is free for now" : "Free plan"];
       if (u.plan === "PRO" && u.planExpiresAt) bits.push("renews or ends " + new Date(u.planExpiresAt).toLocaleDateString());
       if (ai) bits.push("assistant: " + ai.used + " of " + ai.limit + " messages used today");
       planInfo.textContent = bits.join(" · ") + ".";
@@ -1524,7 +1542,7 @@
         const b = h("button", { type: "button", class: "cz-btn", text: "Manage subscription",
           onclick: () => accBusy(b, "Opening…", planMsg, () => Acc.manageBilling()) });
         planBtns.append(b);
-      } else {
+      } else if (!Acc.allFree) {
         const m = h("button", { type: "button", class: "cz-btn is-primary", text: "Upgrade — monthly",
           onclick: () => accBusy(m, "Opening…", planMsg, () => Acc.upgrade("month")) });
         const y = h("button", { type: "button", class: "cz-btn", text: "Upgrade — yearly",
@@ -1607,8 +1625,76 @@
         lastSync, syncMsg),
       group("Plan", planInfo, planBtns, planMsg),
       group("Delete account",
-        note("Removes your account from Atlas. Cancel a Pro subscription first."),
+        note(Acc.allFree ? "Removes your account from Atlas." : "Removes your account from Atlas. Cancel a Pro subscription first."),
         h("div", { class: "cz-btns" }, delBtn), delMsg),
+    ];
+  }
+
+  /* ---- notes: everyday notes, the same list as Quick tools → Notes
+     (quicktools.js keeps them in "qt:tasks"). Private notes stay in the
+     private space. ---- */
+  let notesHooked = false;
+  function notesTab() {
+    const N = window.AtlasQuickTools && AtlasQuickTools.notes;
+    if (!N) return [group("Notes", note("Notes aren't available here."))];
+    if (!notesHooked) {
+      notesHooked = true;
+      /* a change from another tab (or Quick tools) redraws the list, unless
+         a note is being typed in right now */
+      N.on(() => {
+        if (isOpen() && activeTab === "notes" && !body.contains(document.activeElement)) renderTab();
+      });
+      N.ready.then(() => { if (isOpen() && activeTab === "notes") renderTab(); });
+    }
+    const list = N.list();
+    const input = h("textarea", {
+      class: "cz-text cz-note-input", rows: "3", maxlength: "4000", placeholder: "Write a note…", "aria-label": "New note",
+    });
+    const addForm = h("form", {
+      class: "cz-form",
+      onsubmit: (e) => {
+        e.preventDefault();
+        if (!input.value.trim()) return input.focus();
+        N.add(input.value).then(() => { renderTab(); const again = body.querySelector(".cz-note-input"); if (again) again.focus(); });
+      },
+    }, input, h("div", { class: "cz-btns" }, h("button", { type: "submit", class: "cz-btn is-primary", text: "Add note" })));
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) addForm.requestSubmit(); });
+
+    const when = (at) => new Date(at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    const cards = list.map((n) => {
+      const text = h("textarea", { class: "cz-note-text", rows: "2", maxlength: "4000", "aria-label": "Note" });
+      text.value = n.text;
+      const fit = () => { text.style.height = "auto"; text.style.height = text.scrollHeight + "px"; };
+      text.addEventListener("input", fit);
+      text.addEventListener("change", () => N.update(n.id, text.value));
+      requestAnimationFrame(fit);
+      return h("div", { class: "cz-note-card" }, text,
+        h("div", { class: "cz-note-foot" },
+          h("span", { text: when(n.at) }),
+          h("button", {
+            type: "button", class: "cz-note-btn", text: "Copy", "aria-label": "Copy note",
+            onclick: (e) => {
+              if (!navigator.clipboard) return;
+              navigator.clipboard.writeText(n.text);
+              e.currentTarget.textContent = "Copied";
+            },
+          }),
+          h("button", {
+            type: "button", class: "cz-note-btn is-del", text: "Delete", "aria-label": "Delete note",
+            onclick: () => { if (confirm("Delete this note?")) N.remove(n.id).then(renderTab); },
+          })));
+    });
+
+    return [
+      group("New note", addForm, note("Ctrl + Enter adds it. Notes stay on this computer and are also in Quick tools → Notes.")),
+      group("Your notes (" + list.length + ")", ...(cards.length ? cards : [note("No notes yet.")])),
+      group("Private notes",
+        note("Notes you want hidden live in the private folder, locked behind your password."),
+        h("div", { class: "cz-btns" },
+          h("button", {
+            type: "button", class: "cz-btn", text: "Open private folder",
+            onclick: () => { if (app.openPrivateFolder) { close(); app.openPrivateFolder("notes"); } },
+          }))),
     ];
   }
 
@@ -1660,7 +1746,7 @@
       const msg = msgEl();
       return [
         group("Private space",
-          note("A hidden workspace for work shortcuts and notes. It works exactly like the others, but stays off the dock — and encrypted — until you unlock it with your password."),
+          note("A hidden folder for shortcuts and notes, like the one on your phone. It opens from the lock on the dock with your password, and stays encrypted until then."),
           form(async (btn) => {
             if (p1.value.length < MIN_PASSWORD) return say(msg, "Use at least " + MIN_PASSWORD + " characters.", true);
             if (p1.value !== p2.value) return say(msg, "The passwords don't match.", true);
@@ -1684,7 +1770,7 @@
       setTimeout(() => pw.focus(), 0);
       return [
         group("Private space · Locked",
-          note("Enter your password to bring the private workspace back onto the dock."),
+          note("Enter your password to open the private folder (the lock on the dock asks for it too)."),
           form(async (btn) => {
             if (!pw.value) return say(msg, "Enter your password.", true);
             await busy(btn, "Unlocking…", () => V.unlock(pw.value).catch((err) => {
@@ -1707,15 +1793,19 @@
     const pmsg = msgEl();
     return [
       group("Private space · Unlocked",
-        note("Your private workspace is on the dock, with its own sections, shortcuts and notes. Anything you add there is saved encrypted."),
+        note("Your private folder holds its own shortcuts and notes, like a hidden folder on a phone. It's also on the dock while unlocked. Anything you add is saved encrypted."),
         h("div", { class: "cz-btns" },
           h("button", {
-            type: "button", class: "cz-btn is-primary", text: "Open private space",
+            type: "button", class: "cz-btn is-primary", text: "Open private folder",
+            onclick: () => { close(); if (app.openPrivateFolder) app.openPrivateFolder("apps"); },
+          }),
+          h("button", {
+            type: "button", class: "cz-btn", text: "Show on the dock",
             onclick: () => { if (app.openVault) app.openVault(); close(); },
           }),
           h("button", { type: "button", class: "cz-btn", text: "Lock now", onclick: () => V.lock() }))),
       group("Options",
-        toggleRow("Lock button on the dock", "privacy.dock"),
+        toggleRow("Private folder button on the dock", "privacy.dock"),
         toggleRow("Stay unlocked until Chrome closes", "privacy.stay"),
         segRow("Lock when idle", "privacy.autoLock", [[0, "Never"], [1, "1 min"], [5, "5 min"], [15, "15 min"], [30, "30 min"]], { stack: true }),
         note("With the lock button hidden, unlock from here or from the Command Center (type “private”). Otherwise every new tab starts locked.")),
@@ -1833,7 +1923,10 @@
         class: "cz-select", "aria-label": "Wallpaper",
         onchange: () => { r.wallpaper = pick.value; save(); },
       }, wps.map((w) => h("option", { value: w.id, text: w.label })));
-      pick.value = r.wallpaper || (wps[0] && wps[0].id) || "";
+      /* a rule whose wallpaper went missing (a Pro one, now locked) shows the
+         first one — and uses it, rather than silently never firing */
+      if (!wps.some((w) => w.id === r.wallpaper) && wps[0]) r.wallpaper = wps[0].id;
+      pick.value = r.wallpaper || "";
       const enabled = h("input", {
         class: "cz-switch", type: "checkbox", role: "switch", "aria-label": "Rule on",
         onchange: () => { r.enabled = enabled.checked; card.classList.toggle("is-off", !r.enabled); save(); },
@@ -1865,7 +1958,7 @@
       },
     });
     return group("Schedule",
-      note("Change the live wallpaper by itself — at a time each day, on chosen weekdays, on a date, or every year. The latest change whose time has come decides; picking a wallpaper yourself holds until the next one."),
+      note("Change the live wallpaper by itself — at a time each day, on chosen weekdays, on a date, or every year. It switches when a change's time comes; the wallpaper on screen stays until then, and picking one yourself holds until the next change."),
       toggleRow("Use the schedule", "background.scheduleOn"),
       ...cards.map((c) => row("", c, { stack: true, when: on })),
       row("", h("div", { class: "cz-btns" }, list.length < MAX_WP_RULES ? add : note("That's as many changes as fit.")), { stack: true, when: on }));
@@ -2276,10 +2369,14 @@
      tabs moved), upward when the panel opens. Only then — ordinary redraws
      while editing stay still. */
   let enterTimer = 0;
+  /* the cascade is taken off once every row has landed — worked out from
+     the panel's duration, so a long transition never snaps rows mid-fade */
   function enter(dir) {
     body.dataset.enter = dir;
     clearTimeout(enterTimer);
-    enterTimer = setTimeout(() => delete body.dataset.enter, 1200);
+    const dur = Math.min(1400, Math.max(150, Number(settings.lighting.panelDur) || 560));
+    const last = (dir === "open" ? dur * 0.3 : 40) + 10 * 42 + 440;
+    enterTimer = setTimeout(() => delete body.dataset.enter, last + 250);
   }
 
   function switchTab(id) {
@@ -2441,6 +2538,7 @@
     scheduleFields,
     media,
     app,
+    exportSettings,
     /* the checks settings go through, for panels outside Customize */
     clean: { site: cleanSite, sites: normalizeSites, minRules: normalizeMinRules, quotes: normalizeQuotes },
   };

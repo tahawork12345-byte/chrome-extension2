@@ -106,38 +106,111 @@
     return out.flatMap((c) => (c.length > 260 ? c.match(/[\s\S]{1,240}(\s|$)/g) : [c])).filter((c) => c.trim());
   }
 
-  let speakRun = 0;
-  /* speak(text, { voiceId, custom, lang, onend }) -> resolves when done
-     or cut off; a new call (or stop()) cuts the old one off */
-  async function speak(text, opts = {}) {
-    if (!synth) return false;
-    stop();
-    const run = ++speakRun;
-    await voicesReady;
-    if (run !== speakRun) return false;
-    const pieces = chunks(plain(text));
-    if (!pieces.length) return true;
-    const how = resolve(opts.voiceId, opts.custom, opts.lang);
+  /* no system voice for a language (Urdu, Pashto, Punjabi… on most
+     computers): Chrome would read it with an English voice, which says
+     nothing or garbles it. Those replies are read by Google's online voice
+     instead, played as audio. */
+  const ONLINE_TTS = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=";
+  let audio = null;
+  function speakOnline(pieces, how, run) {
+    const tl = primary(how.lang) || "en";
+    /* the online voice takes up to ~200 characters a request */
+    const small = pieces.flatMap((c) => (c.length > 190 ? c.match(/[\s\S]{1,180}(\s|$)/g) : [c])).filter((c) => c.trim());
     return new Promise((done) => {
       let i = 0;
       const next = () => {
         if (run !== speakRun) return done(false);
-        if (i >= pieces.length) return done(true);
-        const u = new SpeechSynthesisUtterance(pieces[i++]);
+        if (i >= small.length) { audio = null; return done(true); }
+        audio = new Audio(ONLINE_TTS + encodeURIComponent(tl) + "&q=" + encodeURIComponent(small[i++].trim()));
+        audio.volume = Math.min(1, Math.max(0, how.volume));
+        audio.playbackRate = Math.min(2, Math.max(0.5, how.rate));
+        audio.preservesPitch = true;
+        audio.onended = next;
+        audio.onerror = () => done(false);
+        audio.play().catch(() => done(false));
+      };
+      next();
+    });
+  }
+
+  let speakRun = 0;
+  /* Chrome drops an utterance it has garbage-collected (and its onend with
+     it), so the ones in flight are kept here */
+  const inFlight = new Set();
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /* speak(text, { voiceId, custom, lang, onend }) -> resolves when done
+     or cut off; a new call (or stop()) cuts the old one off */
+  async function speak(text, opts = {}) {
+    if (!synth) return false;
+    const wasBusy = synth.speaking || synth.pending || !!audio;
+    stop();
+    const run = ++speakRun;
+    await voicesReady;
+    /* speak() straight after cancel() is sometimes ignored by Chrome */
+    if (wasBusy) await wait(120);
+    if (run !== speakRun) return false;
+    const pieces = chunks(plain(text));
+    if (!pieces.length) return true;
+    const how = resolve(opts.voiceId, opts.custom, opts.lang);
+    const hasVoiceForLang = how.voice && primary(how.voice.lang) === primary(how.lang || how.voice.lang);
+    if (!hasVoiceForLang && how.lang && primary(how.lang) !== "en") {
+      const ok = await speakOnline(pieces, how, run);
+      if (ok || run !== speakRun) return ok;
+      /* offline, or the online voice refused: the system voice is better than silence */
+    }
+    return new Promise((done) => {
+      let i = 0;
+      let watchdog = 0;
+      let keepAlive = 0;
+      const finish = (v) => {
+        clearTimeout(watchdog);
+        clearInterval(keepAlive);
+        done(v);
+      };
+      const next = () => {
+        clearTimeout(watchdog);
+        if (run !== speakRun) return finish(false);
+        if (i >= pieces.length) return finish(true);
+        const piece = pieces[i++];
+        const u = new SpeechSynthesisUtterance(piece);
+        inFlight.add(u);
         if (how.voice) u.voice = how.voice;
         u.lang = how.lang || (how.voice && how.voice.lang) || "";
         u.rate = how.rate;
         u.pitch = how.pitch;
         u.volume = how.volume;
-        u.onend = next;
-        u.onerror = (e) => (e.error === "interrupted" || e.error === "canceled" ? done(false) : next());
+        let ended = false;
+        const end = (go) => {
+          if (ended) return;
+          ended = true;
+          inFlight.delete(u);
+          go();
+        };
+        u.onend = () => end(next);
+        u.onerror = (e) => end(() => (e.error === "interrupted" || e.error === "canceled" ? finish(false) : next()));
+        /* some voices never report the end: move on after a generous guess */
+        const guess = 4000 + (piece.length * 180) / Math.max(0.5, how.rate);
+        const check = () => {
+          if (ended) return;
+          if (!synth.speaking) end(next);
+          else watchdog = setTimeout(check, 1000);
+        };
+        watchdog = setTimeout(check, guess);
         synth.speak(u);
       };
+      /* Chrome's online voices go quiet after ~15 s unless nudged */
+      keepAlive = setInterval(() => {
+        if (run !== speakRun) return finish(false);
+        if (synth.speaking && !synth.paused) { synth.pause(); synth.resume(); }
+      }, 10000);
       next();
     });
   }
   function stop() {
     speakRun++;
+    if (audio) { audio.pause(); audio = null; }
+    inFlight.clear();
     if (synth) synth.cancel();
   }
 
@@ -160,15 +233,20 @@
   }
 
   /* listen({ lang, onText(text, isFinal), onEnd(text, error) }) -> { stop, abort }
-     Stops by itself after a pause in speech. */
+     Stops by itself after a pause in speech. Recognition runs continuously
+     with its own pause timer: Chrome's single-shot mode ends at the first
+     short breath, cutting people off mid-sentence. */
+  const PAUSE_MS = 1800;  // quiet this long after speaking = done
+  const WAIT_MS = 9000;   // nothing said at all = give up
   function listen(opts) {
     let rec = null;
     let finalText = "";
     let error = "";
     let stopped = false;
+    let aborted = false;
     const ctl = {
       stop: () => { stopped = true; if (rec) rec.stop(); },
-      abort: () => { stopped = true; if (rec) rec.abort(); },
+      abort: () => { stopped = aborted = true; if (rec) rec.abort(); },
     };
     if (!SR) {
       setTimeout(() => opts.onEnd && opts.onEnd("", "unsupported"));
@@ -180,20 +258,35 @@
       rec = new SR();
       rec.lang = opts.lang || navigator.language || "en-US";
       rec.interimResults = true;
-      rec.continuous = false;
+      rec.continuous = true;
       rec.maxAlternatives = 1;
+      let interim = "";
+      let quiet = 0;
+      const hush = (ms) => {
+        clearTimeout(quiet);
+        quiet = setTimeout(() => { if (rec) rec.stop(); }, ms);
+      };
       rec.onresult = (e) => {
-        let interim = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
+        /* rebuilt from every result each time: continuous mode resends them */
+        let fin = "";
+        interim = "";
+        for (let i = 0; i < e.results.length; i++) {
           const r = e.results[i];
-          if (r.isFinal) finalText += r[0].transcript;
+          if (r.isFinal) fin += (fin && !/\s$/.test(fin) ? " " : "") + r[0].transcript.trim();
           else interim += r[0].transcript;
         }
-        if (opts.onText) opts.onText((finalText + interim).trim(), !interim);
+        finalText = fin;
+        if (opts.onText) opts.onText((finalText + " " + interim).trim(), !interim);
+        hush(PAUSE_MS);
       };
       rec.onerror = (e) => { error = e.error || "error"; };
-      rec.onend = () => opts.onEnd && opts.onEnd(finalText.trim(), finalText.trim() ? "" : error);
-      try { rec.start(); } catch { opts.onEnd && opts.onEnd("", "busy"); }
+      rec.onend = () => {
+        clearTimeout(quiet);
+        /* stopped mid-word: what was heard so far still counts */
+        const text = aborted ? "" : (finalText + " " + interim).trim();
+        if (opts.onEnd) opts.onEnd(text, aborted ? "aborted" : text ? "" : error || "no-speech");
+      };
+      try { rec.start(); hush(WAIT_MS); } catch { opts.onEnd && opts.onEnd("", "busy"); }
     });
     return ctl;
   }

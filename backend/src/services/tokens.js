@@ -65,8 +65,14 @@ export async function revokeRefreshToken(token) {
   });
 }
 
-export function isPro(user) {
+/* a paid, current Pro plan */
+function paidPro(user) {
   return user.plan === "PRO" && (!user.planExpiresAt || user.planExpiresAt > new Date());
+}
+
+/* what Pro features check: while everything is free (env.allFree), everyone */
+export function isPro(user) {
+  return env.allFree || paidPro(user);
 }
 
 export function publicUser(user) {
@@ -75,7 +81,7 @@ export function publicUser(user) {
     email: user.email,
     name: user.name,
     avatarUrl: user.avatarUrl,
-    plan: isPro(user) ? "PRO" : "FREE",
+    plan: paidPro(user) ? "PRO" : "FREE", // the real plan, for billing; features ask isPro()
     planExpiresAt: user.planExpiresAt,
     hasPassword: Boolean(user.passwordHash),
     hasGoogle: Boolean(user.googleId),

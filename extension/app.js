@@ -231,9 +231,26 @@
 
   function applyWallpaperSchedule(instant) {
     const hit = scheduledWallpaper(Date.now());
-    if (!hit) return;
-    if (AS.get().background.mode === "video" && currentWp === hit.id) return;
-    setWallpaper(hit.id, instant, true);
+    if (hit && !(AS.get().background.mode === "video" && currentWp === hit.id)) setWallpaper(hit.id, instant, true);
+    armWallpaperTimer();
+  }
+
+  /* a timer for the very next change, so it lands on the minute rather
+     than up to 20 s late; the interval below is the safety net */
+  let wpTimer = 0;
+  function armWallpaperTimer() {
+    clearTimeout(wpTimer);
+    const bg = AS.get().background;
+    if (!bg.scheduleOn || typeof AtlasSchedule === "undefined") return;
+    const now = Date.now();
+    let soonest = null;
+    bg.schedule.forEach((r) => {
+      if (!r.enabled) return;
+      const t = AtlasSchedule.next(r, now);
+      if (t != null && (soonest == null || t < soonest)) soonest = t;
+    });
+    /* setTimeout can't wait longer than ~24 days; the interval covers the rest */
+    if (soonest != null && soonest - now < 2 ** 31 - 1) wpTimer = setTimeout(() => applyWallpaperSchedule(false), soonest - now + 250);
   }
   setInterval(() => applyWallpaperSchedule(false), 20000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) applyWallpaperSchedule(false); });
@@ -477,24 +494,7 @@
   function promptUnlock() {
     if (!V || !V.exists()) return AS.open("privacy");
     if (V.isUnlocked()) return openVault();
-    let busy = false;
-    openDialog("Unlock private space", [
-      field("Password", "password", "", "", "Your private workspace appears on the dock once unlocked", "password"),
-    ], async (data) => {
-      if (busy) return;
-      if (!data.password) return dialogError("Enter your password.");
-      busy = true;
-      try {
-        await V.unlock(data.password);
-        closeDialog();
-        openVault();
-      } catch (err) {
-        dialogError(err.code === "wrong" ? "That password isn't right." : "Couldn't unlock: " + err.message);
-        const input = dlgFields.querySelector("input");
-        if (input) input.select();
-      }
-      busy = false;
-    });
+    return openPrivateFolder();
   }
 
   if (V) {
@@ -509,6 +509,328 @@
   AS.app.vaultSeed = vaultSeed;
   AS.app.vaultData = () => { const v = vaultWs(); return v ? clone(v) : null; };
   AS.app.openVault = openVault;
+
+  /* ================= PRIVATE FOLDER ======================================
+     The private space as a phone's hidden folder: a screen of its own over
+     the page. Locked, it's a password screen; unlocked, the private
+     shortcuts as an app grid (by section), and the private notes. Opened
+     from the dock's lock button, the Command Center, Customize > Privacy
+     and Customize > Notes. Everything shown comes from the unlocked vault
+     workspace, and it all goes (back to the lock screen) the moment the
+     vault locks. */
+  const pf = document.createElement("div");
+  pf.className = "pf";
+  pf.hidden = true;
+  pf.setAttribute("role", "dialog");
+  pf.setAttribute("aria-modal", "true");
+  pf.setAttribute("aria-label", "Private folder");
+  document.body.append(pf);
+  let pfView = "apps"; // apps | notes
+  let pfEditing = false;
+  let pfLastFocus = null;
+
+  const pfEl = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  const pfBtn = (cls, text, onClick, label) => {
+    const b = pfEl("button", cls, text);
+    b.type = "button";
+    if (label) b.setAttribute("aria-label", label);
+    b.addEventListener("click", onClick);
+    return b;
+  };
+  const pfWhen = (at) => new Date(at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+
+  function openPrivateFolder(view) {
+    if (view === "apps" || view === "notes") pfView = view;
+    if (pf.hidden) pfLastFocus = document.activeElement;
+    pfEditing = false;
+    pf.hidden = false;
+    renderPrivateFolder();
+  }
+  function closePrivateFolder() {
+    if (pf.hidden) return;
+    if (saveTimer) flushLayout();
+    pf.hidden = true;
+    pf.textContent = "";
+    if (pfLastFocus && document.contains(pfLastFocus)) pfLastFocus.focus();
+    pfLastFocus = null;
+  }
+
+  /* the backdrop and box are built once per opening, so their entrance
+     plays once; a redraw (a tab switch, an edit, lock / unlock) only swaps
+     what's inside. `switched`: the contents fade in, the tab keeps focus. */
+  function renderPrivateFolder(switched) {
+    if (pf.hidden) return;
+    let box = pf.querySelector(".pf-box");
+    if (!box) {
+      box = pfEl("div", "pf-box");
+      const backdrop = pfEl("div", "pf-backdrop");
+      backdrop.addEventListener("click", closePrivateFolder);
+      pf.append(backdrop, box);
+    }
+    const oldMain = box.querySelector(".pf-main");
+    const scroll = oldMain ? oldMain.scrollTop : 0;
+    const ws = vaultWs();
+    const oldHead = box.querySelector(".pf-head");
+
+    /* a tab switch keeps the header, so the pill slides across */
+    if (switched && oldHead && oldMain) {
+      oldHead.querySelectorAll(".pf-seg-btn").forEach((b) => {
+        const on = b.dataset.view === pfView;
+        b.classList.toggle("is-on", on);
+        b.setAttribute("aria-selected", String(on));
+      });
+      const seg = oldHead.querySelector(".pf-seg");
+      if (seg) seg.dataset.on = pfView;
+      const main = pfEl("div", "pf-main is-switching");
+      if (pfView === "notes") pfNotes(main, ws);
+      else pfApps(main, ws);
+      oldMain.replaceWith(main);
+      return;
+    }
+    box.textContent = "";
+
+    const head = pfEl("div", "pf-head");
+    const title = pfEl("div", "pf-title");
+    title.innerHTML = svgIcon(ws ? "unlock" : "lock");
+    title.append(pfEl("span", "", "Private"));
+    head.append(title);
+    if (ws) {
+      const seg = pfEl("div", "pf-seg");
+      seg.setAttribute("role", "tablist");
+      seg.dataset.on = pfView;
+      seg.append(pfEl("span", "pf-seg-pill"));
+      [["apps", "Shortcuts"], ["notes", "Notes"]].forEach(([v, t]) => {
+        const b = pfBtn("pf-seg-btn" + (pfView === v ? " is-on" : ""), t, () => {
+          if (pfView === v) return;
+          pfView = v;
+          pfEditing = false;
+          renderPrivateFolder(true);
+        });
+        b.dataset.view = v;
+        b.setAttribute("role", "tab");
+        b.setAttribute("aria-selected", String(pfView === v));
+        seg.append(b);
+      });
+      head.append(seg, pfBtn("pf-lock", "Lock", () => V.lock(), "Lock the private folder"));
+    }
+    head.append(pfBtn("pf-x", "✕", closePrivateFolder, "Close"));
+    box.append(head);
+
+    const main = pfEl("div", "pf-main");
+    box.append(main);
+    if (!V || !V.supported) {
+      main.append(pfEl("p", "pf-empty", "This browser can't encrypt data here, so the private folder isn't available."));
+    } else if (!V.exists()) {
+      const intro = pfEl("div", "pf-lockscreen");
+      const icon = pfEl("div", "pf-bigicon");
+      icon.innerHTML = svgIcon("lock");
+      intro.append(icon, pfEl("h2", "pf-h", "Private folder"),
+        pfEl("p", "pf-sub", "Hide shortcuts and notes behind a password, like a hidden folder on your phone. Everything inside is encrypted."),
+        pfBtn("pf-primary", "Set it up", () => { closePrivateFolder(); AS.open("privacy"); }));
+      main.append(intro);
+    } else if (!ws) {
+      main.append(pfLockScreen());
+    } else if (pfView === "notes") {
+      pfNotes(main, ws);
+    } else {
+      pfApps(main, ws);
+    }
+    main.scrollTop = scroll; // an edit keeps your place
+    const first = pf.querySelector(".pf-pw") || pf.querySelector(".pf-x");
+    if (first) first.focus();
+  }
+
+  function pfLockScreen() {
+    const form = pfEl("form", "pf-lockscreen");
+    form.autocomplete = "off";
+    const icon = pfEl("div", "pf-bigicon");
+    icon.innerHTML = svgIcon("lock");
+    const pw = pfEl("input", "pf-input pf-pw");
+    pw.type = "password";
+    pw.placeholder = "Password";
+    pw.autocomplete = "current-password";
+    pw.setAttribute("aria-label", "Password");
+    const go = pfEl("button", "pf-primary", "Unlock");
+    go.type = "submit";
+    const msg = pfEl("p", "pf-err");
+    msg.hidden = true;
+    msg.setAttribute("role", "alert");
+    form.append(icon, pfEl("h2", "pf-h", "Private folder is locked"), pfEl("p", "pf-sub", "Enter your password to open it."), pw, go, msg);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!pw.value) { msg.textContent = "Enter your password."; msg.hidden = false; return; }
+      go.disabled = true;
+      go.textContent = "Unlocking…";
+      try {
+        await V.unlock(pw.value); // the unlock event redraws this as the folder
+      } catch (err) {
+        msg.textContent = err.code === "wrong" ? "That password isn't right." : "Couldn't unlock: " + err.message;
+        msg.hidden = false;
+        form.classList.remove("is-shake");
+        void form.offsetWidth; // replay the shake
+        form.classList.add("is-shake");
+        go.disabled = false;
+        go.textContent = "Unlock";
+        pw.select();
+      }
+    });
+    return form;
+  }
+
+  /* the shortcuts, section by section, as app icons */
+  function pfApps(main, ws) {
+    const bar = pfEl("div", "pf-bar");
+    bar.append(
+      pfEl("span", "pf-count", ws.cards.reduce((n, c) => n + c.items.length, 0) + " shortcuts"),
+      pfBtn("pf-chip" + (pfEditing ? " is-on" : ""), pfEditing ? "Done" : "Edit", () => { pfEditing = !pfEditing; renderPrivateFolder(); }),
+      pfBtn("pf-chip", "Open on the dock", () => { closePrivateFolder(); openVault(); }));
+    main.append(bar);
+
+    if (!ws.cards.length) ws.cards.push({ id: uid("card"), title: "Private", hint: "", items: [] });
+    ws.cards.forEach((card) => {
+      const sec = pfEl("section", "pf-sec");
+      sec.append(pfEl("h3", "pf-sec-title", card.title || "Section"));
+      const grid = pfEl("div", "pf-grid" + (pfEditing ? " is-editing" : ""));
+      card.items.forEach((item) => {
+        const a = pfEl("a", "pf-app");
+        a.href = item.url;
+        a.title = item.name + "\n" + item.url;
+        const ic = pfEl("span", "pf-app-icon");
+        ic.append(makeIcon(item, "pf-app-img"));
+        a.append(ic, pfEl("span", "pf-app-name", item.name));
+        a.addEventListener("click", (e) => {
+          if (pfEditing) return e.preventDefault();
+          if (e.ctrlKey || e.metaKey || e.shiftKey) return; // a new tab / window, as usual
+          e.preventDefault();
+          if (saveTimer) flushLayout();
+          openShortcut(item);
+        });
+        if (pfEditing) {
+          a.append(pfBtn("pf-app-del", "✕", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!confirm('Remove "' + item.name + '" from the private folder?')) return;
+            card.items.splice(card.items.indexOf(item), 1);
+            saveLayout();
+            if (launcherOpen) renderLauncher();
+            renderPrivateFolder();
+          }, "Remove " + item.name));
+        }
+        grid.append(a);
+      });
+      const add = pfBtn("pf-app pf-app-add", "", () => pfAddForm(sec, card), "Add a shortcut to " + (card.title || "this section"));
+      add.append(pfEl("span", "pf-app-icon", "+"), pfEl("span", "pf-app-name", "Add"));
+      grid.append(add);
+      sec.append(grid);
+      main.append(sec);
+    });
+  }
+
+  function pfAddForm(sec, card) {
+    const old = pf.querySelector(".pf-add");
+    if (old) old.remove();
+    const form = pfEl("form", "pf-add");
+    form.autocomplete = "off";
+    const name = pfEl("input", "pf-input");
+    name.placeholder = "Name";
+    name.maxLength = 60;
+    name.setAttribute("aria-label", "Name");
+    const url = pfEl("input", "pf-input");
+    url.placeholder = "example.com";
+    url.spellcheck = false;
+    url.setAttribute("aria-label", "Web address");
+    const save = pfEl("button", "pf-primary", "Add");
+    save.type = "submit";
+    const msg = pfEl("p", "pf-err");
+    msg.hidden = true;
+    form.append(name, url, save, pfBtn("pf-chip", "Cancel", () => form.remove()), msg);
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const u = normalizeUrl(url.value);
+      const n = name.value.trim() || hostOf(u);
+      if (!u || !n) {
+        msg.textContent = "Give it a web address, like github.com";
+        msg.hidden = false;
+        return url.focus();
+      }
+      card.items.push({ id: uid("item"), name: n.slice(0, 60), url: u, icon: "" });
+      saveLayout();
+      if (launcherOpen) renderLauncher();
+      renderPrivateFolder();
+    });
+    form.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); form.remove(); }
+    });
+    sec.append(form);
+    name.focus();
+  }
+
+  /* the private notes: a title and text each, saved (encrypted) as typed */
+  function pfNotes(main, ws) {
+    const bar = pfEl("div", "pf-bar");
+    bar.append(
+      pfEl("span", "pf-count", ws.notes.length + " notes"),
+      pfBtn("pf-chip is-on", "+ New note", () => {
+        ws.notes.unshift({ id: uid("note"), title: "", text: "", at: Date.now() });
+        saveLayout();
+        renderPrivateFolder();
+        const first = pf.querySelector(".pf-note-title");
+        if (first) first.focus();
+      }));
+    main.append(bar);
+    if (!ws.notes.length) main.append(pfEl("p", "pf-empty", "No private notes yet. They're encrypted along with everything else here."));
+    const list = pfEl("div", "pf-notes");
+    ws.notes.forEach((n) => {
+      const title = pfEl("input", "pf-note-title");
+      title.value = n.title;
+      title.placeholder = "Title";
+      title.setAttribute("aria-label", "Note title");
+      const text = pfEl("textarea", "pf-note-text");
+      text.value = n.text;
+      text.placeholder = "Write something…";
+      text.rows = 3;
+      text.setAttribute("aria-label", "Note");
+      const fit = () => { text.style.height = "auto"; text.style.height = text.scrollHeight + "px"; };
+      const time = pfEl("span", "", pfWhen(n.at));
+      const foot = pfEl("div", "pf-note-foot");
+      foot.append(time, pfBtn("pf-chip", "Delete", () => {
+        if ((n.title || n.text) && !confirm('Delete "' + (n.title || "Untitled") + '"?')) return;
+        ws.notes.splice(ws.notes.indexOf(n), 1);
+        saveLayout();
+        renderPrivateFolder();
+      }));
+      const edit = () => {
+        n.title = title.value;
+        n.text = text.value;
+        n.at = Date.now();
+        time.textContent = pfWhen(n.at);
+        saveLayout();
+      };
+      title.addEventListener("input", edit);
+      text.addEventListener("input", () => { fit(); edit(); });
+      const card = pfEl("div", "pf-note");
+      card.append(title, text, foot);
+      list.append(card);
+      requestAnimationFrame(fit);
+    });
+    main.append(list);
+  }
+
+  pf.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePrivateFolder(); }
+  });
+  if (V) V.on((type) => {
+    if (type === "beforelock" || pf.hidden) return;
+    /* a lock swaps the contents for the password screen at once */
+    if (type === "destroy") closePrivateFolder();
+    else renderPrivateFolder();
+  });
+  AS.app.openPrivateFolder = openPrivateFolder;
 
   /* auto-lock after the idle time picked in Customize > Privacy */
   let lastActive = Date.now();
@@ -650,10 +972,13 @@
       const lock = document.createElement("button");
       lock.type = "button";
       lock.className = "rail-btn rail-lock" + (open ? " is-open" : "") + (open && vaultArriving ? " is-arriving" : "");
-      lock.dataset.label = open ? "Lock private space" : "Private space";
-      lock.setAttribute("aria-label", open ? "Lock private space" : "Unlock private space");
+      lock.dataset.label = open ? "Private folder (right-click to lock)" : "Private folder";
+      lock.setAttribute("aria-label", open ? "Open the private folder" : "Unlock the private folder");
       lock.innerHTML = svgIcon(open ? "unlock" : "lock");
-      lock.addEventListener("click", () => (open ? V.lock() : promptUnlock()));
+      /* the hidden folder: a password screen, then the private shortcuts
+         and notes; right-click locks it straight away */
+      lock.addEventListener("click", () => (pf.hidden ? openPrivateFolder() : closePrivateFolder()));
+      lock.addEventListener("contextmenu", (e) => { if (open) { e.preventDefault(); V.lock(); } });
       rail.appendChild(lock);
     }
     vaultArriving = false;
@@ -2740,10 +3065,14 @@
       })];
     }
     return [
-      Object.assign({}, base, { id: "vault:open", title: "Open Private Space", description: "Your private sections and shortcuts", run: openVault }),
       Object.assign({}, base, {
-        id: "vault:notes", title: "Private Notes", description: "Open the Notes tab",
-        run: () => { openVault(); setTab("notes"); },
+        id: "vault:folder", title: "Open Private Folder", description: "Your hidden shortcuts and notes, on a screen of their own",
+        keywords: keywords.concat(["folder"]), run: () => openPrivateFolder("apps"),
+      }),
+      Object.assign({}, base, { id: "vault:open", title: "Private Space on the Dock", description: "Your private sections and shortcuts", run: openVault }),
+      Object.assign({}, base, {
+        id: "vault:notes", title: "Private Notes", description: "Open the private folder's notes",
+        run: () => openPrivateFolder("notes"),
       }),
       Object.assign({}, base, { id: "vault:lock", title: "Lock Private Space", description: "Hide it again until the password is entered", mark: "○", run: () => V.lock() }),
     ];
@@ -3395,9 +3724,10 @@
     /* choosing a colour / image / gradient by hand also holds off the schedule */
     if (path === "background.mode" && !wpScheduling) markManual();
     if (path.startsWith("background.schedule")) {
-      /* an edited schedule takes charge right away */
-      wpManualAt = 0;
-      store.set({ [WP_MANUAL_KEY]: "0" });
+      /* an edited schedule takes charge from its next time: the wallpaper
+         on screen now stays until then (a rule's last time — yesterday at
+         18:00, say — would otherwise switch it the moment it's saved) */
+      markManual();
     }
     if (all || path.startsWith("background.schedule")) applyWallpaperSchedule(false);
     if (all || path.startsWith("background.")) applyBackground();

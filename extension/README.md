@@ -44,9 +44,13 @@ or by right-clicking the bare wallpaper. Every change applies live and is saved.
   search elsewhere with a keyword: `!yt cats`, `!gh react`, `!w Tokyo`.
   Past searches are in their own panel (the clock button) — filter, re-run,
   edit, delete or clear them; "Remember searches" turns history off
-- **Privacy** — a password-locked private space: a workspace of its own
-  (sections, shortcuts, a Notes tab and "Save open tabs") that stays off the
-  dock until unlocked. Its content is encrypted (PBKDF2 + AES-GCM, `vault.js`);
+- **Notes** — everyday notes (the same list as Quick tools → Notes): add,
+  edit, copy, delete
+- **Privacy** — a password-locked private folder, like a phone's hidden
+  folder: the lock on the dock opens a password screen, then the private
+  shortcuts as an app grid (by section) and private notes. It's also a
+  workspace of its own on the dock (sections, shortcuts, a Notes tab and
+  "Save open tabs") while unlocked; right-click the lock to lock it. Its content is encrypted (PBKDF2 + AES-GCM, `vault.js`);
   the password can't be recovered. Options: lock button on the dock, stay
   unlocked until Chrome closes, lock when idle, change password, delete
 - **Backup** — export / import settings as JSON, or reset everything
@@ -105,7 +109,17 @@ the same panel (← back to the grid, Esc steps back).
   **Auto optimize**: sleep tabs unused for 15 min–4 h, and close a tab that
   opens a page already open (switching to the existing one). Pinned, playing
   and active tabs are never touched. `background.js` runs the automatic part.
+- **Tab manager** — this window's tabs; name them and **Save** to keep them
+  as a session, then **Open** it in a new window or **Add here** later
+  (list or grid view). Free accounts keep 3 sessions (`PRO_CONFIG.freeSessions`),
+  Pro up to 50. Stored under `qt:sessions` and synced with the account.
+- **Extensions** — your other extensions with search, All / Active / Off,
+  and a switch for each. Chrome's `management` permission is *optional*: the
+  view asks for it the first time, so installing Atlas never needs it.
 - **Site blocker**, **Daily quote** — their settings, below.
+- Under the grid: **Feedback** (email, `ABOUT_CONFIG.feedbackEmail`), **Rate
+  us** and **Share** (the Chrome Web Store page, `ABOUT_CONFIG.storeUrl`), and
+  FAQs · Changelog · Privacy Policy · Export Backup, with the version.
 
 Zen clock and minimal mode are the two round buttons at the bottom left,
 styled like these two; hovering one shows its name.

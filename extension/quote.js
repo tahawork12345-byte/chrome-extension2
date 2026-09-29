@@ -74,6 +74,7 @@
   ].map(([text, author, cat], i) => ({ id: "b" + i, text, author, cat }));
 
   const TODAY_KEY = "quote:today";
+  const LAST_KEY = "quote:last";
   const hasChrome = typeof chrome !== "undefined" && chrome.storage && chrome.storage.local;
   const dayStamp = () => new Date().toDateString();
   const cfg = () => AS.get().widgets.quote;
@@ -96,34 +97,62 @@
 
   let today = null; // { day, id } — a pick that holds for the day
   let current = null;
-  let lastRandom = "";
+  let lastShown = ""; // the quote the last new tab showed, so the next one differs
+
+  const rand = (list) => list[Math.floor(Math.random() * list.length)];
+  const avoid = (list, id) => (list.length > 1 && id ? list.filter((q) => q.id !== id) : list);
 
   function choose() {
     const list = pool();
     if (!list.length) return null;
+    /* "every new tab": a fresh one each time, never the one just shown */
+    if (cfg().every === "tab") {
+      if (current && list.some((q) => q.id === current.id)) return current; // a settings change keeps this tab's quote
+      const q = rand(avoid(list, lastShown));
+      lastShown = q.id;
+      if (hasChrome) chrome.storage.local.set({ [LAST_KEY]: q.id });
+      return q;
+    }
     if (today && today.day === dayStamp()) {
       const held = list.find((q) => q.id === today.id);
       if (held) return held;
     }
-    if (cfg().every === "tab") {
-      const others = list.length > 1 ? list.filter((q) => q.id !== lastRandom) : list;
-      const q = others[Math.floor(Math.random() * others.length)];
-      lastRandom = q.id;
-      return q;
-    }
     return list[dailyIndex(list.length)];
   }
 
-  /* ↻: another quote, which then holds for the rest of the day */
+  /* ↻: another quote. Once a day, it then holds for the rest of the day;
+     on every new tab, it's just for this tab */
   function next() {
     const list = pool();
     if (!list.length) return null;
-    const others = list.length > 1 ? list.filter((q) => !current || q.id !== current.id) : list;
-    const q = others[Math.floor(Math.random() * others.length)];
-    today = { day: dayStamp(), id: q.id };
-    if (hasChrome) chrome.storage.local.set({ [TODAY_KEY]: today });
+    const q = rand(avoid(list, current && current.id));
+    if (cfg().every === "tab") {
+      lastShown = q.id;
+      if (hasChrome) chrome.storage.local.set({ [LAST_KEY]: q.id });
+    } else {
+      today = { day: dayStamp(), id: q.id };
+      if (hasChrome) chrome.storage.local.set({ [TODAY_KEY]: today });
+    }
     show(q);
     return q;
+  }
+
+  /* a quote written on the new tab goes into "My quotes" and shows now */
+  function add(text, author) {
+    text = String(text || "").trim();
+    if (!text) return null;
+    const clean = AS.clean && AS.clean.quotes;
+    const q = { id: "q-" + Date.now().toString(36), text, author: String(author || "").trim() };
+    const list = (AS.get().quotes.custom || []).concat(q);
+    AS.set("quotes.custom", clean ? clean(list) : list);
+    const saved = AS.get().quotes.custom.find((x) => x.id === q.id) || q;
+    const mine = Object.assign({ cat: "mine" }, saved);
+    if (cfg().every === "day") {
+      today = { day: dayStamp(), id: mine.id };
+      if (hasChrome) chrome.storage.local.set({ [TODAY_KEY]: today });
+    }
+    show(mine);
+    return mine;
   }
 
   /* ---------- the widget ---------- */
@@ -139,17 +168,51 @@
     '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v3.7h-3.7"/></svg></button>' +
     '<button type="button" class="quote-btn" data-act="copy" title="Copy" aria-label="Copy quote">' +
     '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 15V6a1 1 0 0 1 1-1h9"/></svg></button>' +
+    '<button type="button" class="quote-btn" data-act="add" title="Add your own quote" aria-label="Add your own quote">' +
+    '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>' +
     '<button type="button" class="quote-btn" data-act="edit" title="Quote settings" aria-label="Quote settings">' +
     '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>' +
-    "</div>";
+    "</div>" +
+    '<form class="quote-add" hidden>' +
+    '<textarea class="quote-add-text" rows="2" maxlength="400" placeholder="Write your quote…" aria-label="Your quote"></textarea>' +
+    '<div class="quote-add-row">' +
+    '<input class="quote-add-by" type="text" maxlength="80" placeholder="Who said it (optional)" aria-label="Author">' +
+    '<button type="button" class="quote-add-btn" data-act="cancel">Cancel</button>' +
+    '<button type="submit" class="quote-add-btn is-primary">Add</button>' +
+    "</div></form>";
   document.body.append(el);
   const textEl = el.querySelector(".quote-text");
   const byEl = el.querySelector(".quote-by");
+  const form = el.querySelector(".quote-add");
+  const formText = form.querySelector(".quote-add-text");
+  const formBy = form.querySelector(".quote-add-by");
+
+  function openForm(on) {
+    form.hidden = !on;
+    el.classList.toggle("is-adding", on);
+    if (on) {
+      formText.value = "";
+      formBy.value = "";
+      formText.focus();
+    }
+  }
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!formText.value.trim()) return formText.focus();
+    add(formText.value, formBy.value);
+    openForm(false);
+  });
+  form.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.stopPropagation(); openForm(false); }
+    else if (e.key === "Enter" && e.target === formText && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+  });
 
   el.addEventListener("click", (e) => {
+    if (e.target.closest("[data-act=cancel]")) return openForm(false);
     const b = e.target.closest(".quote-btn");
     if (!b) return;
     if (b.dataset.act === "next") next();
+    else if (b.dataset.act === "add") openForm(form.hidden);
     else if (b.dataset.act === "copy" && current && navigator.clipboard) {
       navigator.clipboard.writeText("“" + current.text + "”" + (current.author ? " — " + current.author : ""));
       b.classList.add("is-done");
@@ -172,13 +235,14 @@
     }
     listeners.forEach((fn) => fn(q));
   }
-  const refresh = () => show(choose());
+  let started = false; // waits for the last shown quote, so a new tab never repeats it
+  const refresh = () => started && show(choose());
 
   AS.on((s, path) => {
     if (path === "*" || path.startsWith("widgets.quote.") || path.startsWith("quotes.")) refresh();
   });
   if (hasChrome) chrome.storage.onChanged.addListener((ch, area) => {
-    if (area !== "local" || !ch[TODAY_KEY]) return;
+    if (area !== "local" || !ch[TODAY_KEY] || cfg().every !== "day") return;
     today = ch[TODAY_KEY].newValue || null;
     const q = choose();
     if (!current || !q || q.id !== current.id) show(q);
@@ -191,8 +255,10 @@
     }
   }, 60000);
 
-  Promise.all([AS.ready, hasChrome ? new Promise((r) => chrome.storage.local.get([TODAY_KEY], r)) : {}]).then(([, o]) => {
+  Promise.all([AS.ready, hasChrome ? new Promise((r) => chrome.storage.local.get([TODAY_KEY, LAST_KEY], r)) : {}]).then(([, o]) => {
     today = (o && o[TODAY_KEY]) || null;
+    lastShown = (o && o[LAST_KEY]) || "";
+    started = true;
     refresh();
   });
 
@@ -201,6 +267,7 @@
     builtInCount: BUILT_IN.length,
     current: () => current,
     next,
+    add,
     poolSize: () => pool().length,
     on: (fn) => listeners.push(fn),
   };

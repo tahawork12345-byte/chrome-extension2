@@ -214,10 +214,28 @@ const ACCOUNT_CONFIG = {
    backend re-checks every Pro call, so these only shape the screens.
    freeHabits:    habits a free account can track
    freeStatsDays: days of the stats dashboard a free account sees
-                  (1 = today only; Pro sees 30 days and the weekly email) */
+                  (1 = today only; Pro sees 30 days and the weekly email)
+   freeSessions:  tab sessions a free account can save (Quick tools →
+                  Tab manager)
+   allFree:       true = every Pro feature is open to everyone, signed in
+                  or not, and nothing offers an upgrade (the backend has the
+                  same switch, ALL_FREE). false brings the Pro plan back. */
 const PRO_CONFIG = {
+  allFree: true,
   freeHabits: 3,
   freeStatsDays: 1,
+  freeSessions: 3,
+};
+
+/* ---------- 5d. ABOUT ------------------------------------------
+   The footer of Quick tools: Feedback, Rate us, Share and the links.
+   storeUrl:   the Chrome Web Store page; "" = worked out from the
+               extension's id once it's published
+   privacyUrl: "" = the backend's /privacy.html (ACCOUNT_CONFIG.api)  */
+const ABOUT_CONFIG = {
+  feedbackEmail: "muhammadaqibawan07@gmail.com",
+  storeUrl: "",
+  privacyUrl: "",
 };
 
 /* ---------- 6. WEATHER -----------------------------------------

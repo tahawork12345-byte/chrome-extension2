@@ -16,6 +16,10 @@ export const env = {
   refreshTokenDays: int(process.env.REFRESH_TOKEN_DAYS, 30),
   googleClientIds: list(process.env.GOOGLE_CLIENT_IDS),
 
+  /* every Pro feature open to everyone, signed in or not (for now). Set
+     ALL_FREE=false to bring the Pro plan back. */
+  allFree: process.env.ALL_FREE !== "false",
+
   geminiKey: process.env.GEMINI_API_KEY || "",
   geminiModel: process.env.GEMINI_MODEL || "gemini-3.1-flash-lite",
   aiDailyLimit: {

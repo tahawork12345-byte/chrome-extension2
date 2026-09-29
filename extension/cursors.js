@@ -339,6 +339,11 @@
     "[contenteditable=\"\"]", "[contenteditable=true]",
   ].join(",");
 
+  /* elements a site gave cursor: pointer / default, marked on hover by
+     cursor-apply.js */
+  const MARKED_POINTER = "[data-atlas-cur=p]";
+  const MARKED_NORMAL = "[data-atlas-cur=n]";
+
   /* the normal cursor is set on the root and inherited, so anything a site
      gives its own cursor (grab, resize, a custom hand) still shows it */
   function css(rawCfg, accent) {
@@ -354,7 +359,8 @@
     };
     return (
       "html,body{" + decl(art.normal, "auto") + "}" +
-      POINTER_SEL + "{" + decl(art.pointer, "pointer") + "}" +
+      POINTER_SEL + "," + MARKED_POINTER + "{" + decl(art.pointer, "pointer") + "}" +
+      MARKED_NORMAL + "{" + decl(art.normal, "default") + "}" +
       TEXT_SEL + "{cursor:text!important}" +
       "button:disabled,button:disabled *,[aria-disabled=true]{" + decl(art.normal, "default") + "}"
     );
@@ -367,7 +373,40 @@
     return art ? svgData((state === "pointer" ? art.pointer : art.normal).svg, 32) : "";
   }
 
+  /* sites (and the new tab's own CSS) give elements cursor: pointer or
+     default, which would show the plain system cursor there. Each hovered
+     element is checked once and marked, so the skin's hand or arrow shows
+     instead; text, grab, resize and the rest are left as they were set.
+     isActive() says whether a skin is on right now. */
+  function watch(isActive) {
+    if (typeof document === "undefined") return;
+    const mark = (el) => {
+      if (!el || el.nodeType !== 1 || el.hasAttribute("data-atlas-cur") || !isActive()) return;
+      const c = getComputedStyle(el).cursor;
+      if (c === "pointer") el.setAttribute("data-atlas-cur", "p");
+      else if (c === "default" || c === "auto") el.setAttribute("data-atlas-cur", "n");
+    };
+    const onOver = (e) => mark(e.composedPath ? e.composedPath()[0] : e.target);
+    document.addEventListener("pointerover", onOver, { capture: true, passive: true });
+    document.addEventListener("mouseover", onOver, { capture: true, passive: true });
+  }
+
+  /* loads the images in a cursor CSS text, so the first hover doesn't show
+     the system cursor while one decodes */
+  const preloaded = new Set();
+  function preload(text) {
+    if (typeof Image === "undefined") return;
+    const re = /url\("([^"]+)"\)/g;
+    for (let m; (m = re.exec(text)); ) {
+      if (preloaded.has(m[1])) continue;
+      preloaded.add(m[1]);
+      new Image().src = m[1];
+    }
+  }
+
   (typeof window !== "undefined" ? window : self).AtlasCursors = {
+    watch,
+    preload,
     PACKS: PACKS.map(({ id, label }) => ({ id, label })),
     MAX_CUSTOM,
     defaults,
