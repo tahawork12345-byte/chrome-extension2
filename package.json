@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "assistant": "node --env-file=server/.env server/chat.js"
+    "backend": "npm --prefix backend run dev"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

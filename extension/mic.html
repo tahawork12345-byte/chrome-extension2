@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Atlas — Microphone</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #121216; color: #f7f6f3; font: 15px/1.55 system-ui, sans-serif; }
+      main { max-width: 440px; padding: 32px 28px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 18px; background: rgba(255, 255, 255, 0.04); text-align: center; }
+      h1 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
+      p { margin: 0 0 18px; color: rgba(247, 246, 243, 0.7); }
+      button { padding: 10px 20px; border: 0; border-radius: 999px; background: #d8c3a5; color: #121216; font: inherit; font-weight: 600; cursor: pointer; }
+      .ok { color: #6fdc9a; }
+      .err { color: #e8a0a0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Allow the microphone</h1>
+      <p id="msg">Voice typing and talking to Atlas need your microphone. Click below and choose <b>Allow</b> when Chrome asks.</p>
+      <button type="button" id="allow">Allow microphone</button>
+    </main>
+    <script src="mic.js"></script>
+  </body>
+</html>

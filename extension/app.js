@@ -184,19 +184,76 @@
       v.defaultPlaybackRate = rate; // survives a src change
       v.playbackRate = rate;
     });
-    renderWpMenu();
   }
 
-  /* pick a built-in wallpaper; also switches the background back to it */
-  function setWallpaper(id, instant = false) {
+  /* pick a built-in wallpaper; also switches the background back to it.
+     A pick by hand holds off the schedule until its next change. */
+  function setWallpaper(id, instant = false, scheduled = false) {
     const wp = WALLPAPERS.find((w) => w.id === id) || WALLPAPERS[0];
     if (!wp) return;
     currentWp = wp.id;
     store.set({ wallpaper: wp.id });
+    if (!scheduled) markManual();
+    wpScheduling = scheduled;
     if (AS.get().background.mode !== "video") AS.set("background.mode", "video"); // re-applies via the listener
     else applyBackground(instant);
+    wpScheduling = false;
   }
   AS.app.setWallpaper = (id) => setWallpaper(id);
+  /* premium.js "Change by itself": like the schedule, not a pick by hand */
+  AS.app.autoWallpaper = (id) => { if (WALLPAPERS.some((w) => w.id === id) && id !== currentWp) setWallpaper(id, false, true); };
+
+  /* --- wallpaper schedule (Customize > Background > Schedule) -----------
+     Each rule says "from this moment, show this wallpaper". The rule whose
+     latest occurrence is most recent is in charge — unless the user picked
+     a background by hand after it, which then holds until the next change.
+     Checked every 20 s and whenever the tab comes back into view. */
+  const WP_MANUAL_KEY = "wallpaperManualAt";
+  let wpManualAt = 0;
+  let wpScheduling = false; // true while the schedule itself changes things
+
+  function markManual() {
+    wpManualAt = Date.now();
+    store.set({ [WP_MANUAL_KEY]: String(wpManualAt) });
+  }
+
+  function scheduledWallpaper(now) {
+    const bg = AS.get().background;
+    if (!bg.scheduleOn || typeof AtlasSchedule === "undefined") return null;
+    let best = null;
+    bg.schedule.forEach((r) => {
+      if (!r.enabled || !WALLPAPERS.some((w) => w.id === r.wallpaper)) return;
+      const t = AtlasSchedule.last(r, now);
+      if (t != null && (!best || t > best.t)) best = { t, id: r.wallpaper };
+    });
+    return best && best.t > wpManualAt ? best : null;
+  }
+
+  function applyWallpaperSchedule(instant) {
+    const hit = scheduledWallpaper(Date.now());
+    if (hit && !(AS.get().background.mode === "video" && currentWp === hit.id)) setWallpaper(hit.id, instant, true);
+    armWallpaperTimer();
+  }
+
+  /* a timer for the very next change, so it lands on the minute rather
+     than up to 20 s late; the interval below is the safety net */
+  let wpTimer = 0;
+  function armWallpaperTimer() {
+    clearTimeout(wpTimer);
+    const bg = AS.get().background;
+    if (!bg.scheduleOn || typeof AtlasSchedule === "undefined") return;
+    const now = Date.now();
+    let soonest = null;
+    bg.schedule.forEach((r) => {
+      if (!r.enabled) return;
+      const t = AtlasSchedule.next(r, now);
+      if (t != null && (soonest == null || t < soonest)) soonest = t;
+    });
+    /* setTimeout can't wait longer than ~24 days; the interval covers the rest */
+    if (soonest != null && soonest - now < 2 ** 31 - 1) wpTimer = setTimeout(() => applyWallpaperSchedule(false), soonest - now + 250);
+  }
+  setInterval(() => applyWallpaperSchedule(false), 20000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) applyWallpaperSchedule(false); });
   AS.app.currentWallpaper = () => currentWp;
 
   /* step through the wallpaper list — used by the wallpaper commands so they
@@ -207,41 +264,6 @@
     const next = (((i < 0 ? 0 : i + delta) % WALLPAPERS.length) + WALLPAPERS.length) % WALLPAPERS.length;
     setWallpaper(WALLPAPERS[next].id);
   }
-
-  const wpMenu = $("wpMenu");
-  function renderWpMenu() {
-    wpMenu.innerHTML = "";
-    const live = AS.get().background.mode === "video";
-    WALLPAPERS.forEach((w) => {
-      const b = document.createElement("button");
-      b.textContent = w.label;
-      if (live && w.id === currentWp) b.classList.add("is-on");
-      b.addEventListener("click", () => {
-        setWallpaper(w.id);
-        wpMenu.hidden = true;
-      });
-      wpMenu.appendChild(b);
-    });
-    const more = document.createElement("button");
-    more.textContent = "Customize…";
-    more.addEventListener("click", () => {
-      wpMenu.hidden = true;
-      AS.open("background");
-    });
-    wpMenu.appendChild(more);
-  }
-  $("wpToggle").addEventListener("click", (e) => {
-    e.stopPropagation();
-    wpMenu.hidden = !wpMenu.hidden;
-    if (!wpMenu.hidden) {
-      // the list scrolls past 3 entries — bring the current one into view
-      const on = wpMenu.querySelector("button.is-on");
-      if (on) on.scrollIntoView({ block: "nearest" });
-    }
-  });
-  document.addEventListener("click", (e) => {
-    if (!$("wpControl").contains(e.target)) wpMenu.hidden = true;
-  });
 
   // save power when the tab isn't visible
   document.addEventListener("visibilitychange", () => {
@@ -361,22 +383,463 @@
     return out;
   }
 
-  /* Replace the contents of WORKSPACES without breaking references to it. */
+  /* Replace the contents of WORKSPACES without breaking references to it.
+     The private workspace only survives while the vault is unlocked (an
+     Undo snapshot taken before a lock must not bring it back). */
   function applyLayout(list) {
     WORKSPACES.length = 0;
-    normalizeLayout(list).forEach((ws) => WORKSPACES.push(ws));
+    const open = V && V.isUnlocked();
+    normalizeLayout(list).forEach((ws) => {
+      if (!ws.private || open) WORKSPACES.push(ws);
+    });
   }
 
   let saveTimer = 0;
   function saveLayout() {
     /* coalesce bursts (e.g. a rename typed then confirmed) into one write */
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      store.set({
-        [LAYOUT_KEY]: JSON.stringify({ v: LAYOUT_VERSION, workspaces: WORKSPACES }),
-      });
-    }, 120);
+    saveTimer = setTimeout(flushLayout, 120);
   }
+  /* the private workspace never goes into the plain layout — it is
+     encrypted into the vault instead */
+  function flushLayout() {
+    clearTimeout(saveTimer);
+    saveTimer = 0;
+    store.set({
+      [LAYOUT_KEY]: JSON.stringify({ v: LAYOUT_VERSION, workspaces: WORKSPACES.filter((w) => !w.private) }),
+    });
+    const vault = vaultWs();
+    if (vault) V.save(vault);
+  }
+
+  /* ================= PRIVATE SPACE =======================================
+     vault.js decrypts the private workspace on unlock; it is then just one
+     more entry in WORKSPACES (flagged `private`), so the rail, launcher,
+     editing and drag and drop all work on it unchanged. It adds a Notes tab
+     and "Save open tabs", and never feeds Quick Peek. Locking takes it out
+     of WORKSPACES again. */
+  const V = window.AtlasVault;
+  const VAULT_ID = "atlas-private";
+  const vaultWs = () => WORKSPACES.find((w) => w.private) || null;
+  let vaultArriving = false; // the rail animates its icon in once, on unlock
+  const isPrivateItem = (item) => {
+    const v = vaultWs();
+    return !!v && v.cards.some((c) => c.items.includes(item));
+  };
+
+  function normalizeNotes(list) {
+    return (Array.isArray(list) ? list : []).reduce((acc, n) => {
+      if (!n || typeof n !== "object") return acc;
+      acc.push({
+        id: typeof n.id === "string" && n.id ? n.id : uid("note"),
+        title: typeof n.title === "string" ? n.title : "",
+        text: typeof n.text === "string" ? n.text : "",
+        at: isFinite(n.at) ? Number(n.at) : Date.now(),
+      });
+      return acc;
+    }, []);
+  }
+
+  function mountVault(data) {
+    const i = WORKSPACES.findIndex((w) => w.private);
+    if (i >= 0) WORKSPACES.splice(i, 1);
+    const src = data && typeof data === "object" ? data : {};
+    const ws = normalizeLayout([Object.assign({ name: "Private", cards: [] }, src)])[0];
+    ws.id = VAULT_ID;
+    ws.private = true;
+    ws.notes = normalizeNotes(src.notes);
+    WORKSPACES.push(ws);
+    vaultArriving = true;
+    renderRail();
+    if (launcherOpen) renderLauncher();
+  }
+
+  function unmountVault() {
+    const i = WORKSPACES.findIndex((w) => w.private);
+    if (i >= 0) WORKSPACES.splice(i, 1);
+    /* nothing private may stay on screen */
+    toastEl.hidden = true;
+    closeDialog();
+    closeMenu();
+    closeCommandCenter();
+    if (activeWs === VAULT_ID) {
+      activeWs = WORKSPACES[0] ? WORKSPACES[0].id : null;
+      if (launcherOpen) setLauncherOpen(false);
+    }
+    renderRail();
+    renderLauncher();
+  }
+
+  /* the starting content for a new private space: empty, or a copy of one
+     of the workspaces (Customize > Privacy) */
+  function vaultSeed(fromId) {
+    const src = WORKSPACES.find((w) => w.id === fromId && !w.private);
+    return {
+      id: VAULT_ID,
+      name: "Private",
+      private: true,
+      cards: src
+        ? clone(src.cards)
+        : [{ id: uid("card"), title: "Work", hint: "Private", items: [] }],
+      notes: [],
+    };
+  }
+
+  function openVault() {
+    if (!vaultWs()) return;
+    setWorkspace(VAULT_ID);
+    setLauncherOpen(true);
+  }
+
+  function promptUnlock() {
+    if (!V || !V.exists()) return AS.open("privacy");
+    if (V.isUnlocked()) return openVault();
+    return openPrivateFolder();
+  }
+
+  if (V) {
+    V.on((type, data) => {
+      if (type === "unlock") mountVault(data);
+      else if (type === "beforelock") { if (saveTimer) flushLayout(); }
+      else if (type === "lock") unmountVault();
+      else renderRail(); // created / deleted / password changed
+    });
+  }
+  AS.app.workspaces = () => WORKSPACES.filter((w) => !w.private).map((w) => ({ id: w.id, name: w.name }));
+  AS.app.vaultSeed = vaultSeed;
+  AS.app.vaultData = () => { const v = vaultWs(); return v ? clone(v) : null; };
+  AS.app.openVault = openVault;
+
+  /* ================= PRIVATE FOLDER ======================================
+     The private space as a phone's hidden folder: a screen of its own over
+     the page. Locked, it's a password screen; unlocked, the private
+     shortcuts as an app grid (by section), and the private notes. Opened
+     from the dock's lock button, the Command Center, Customize > Privacy
+     and Customize > Notes. Everything shown comes from the unlocked vault
+     workspace, and it all goes (back to the lock screen) the moment the
+     vault locks. */
+  const pf = document.createElement("div");
+  pf.className = "pf";
+  pf.hidden = true;
+  pf.setAttribute("role", "dialog");
+  pf.setAttribute("aria-modal", "true");
+  pf.setAttribute("aria-label", "Private folder");
+  document.body.append(pf);
+  let pfView = "apps"; // apps | notes
+  let pfEditing = false;
+  let pfLastFocus = null;
+
+  const pfEl = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  const pfBtn = (cls, text, onClick, label) => {
+    const b = pfEl("button", cls, text);
+    b.type = "button";
+    if (label) b.setAttribute("aria-label", label);
+    b.addEventListener("click", onClick);
+    return b;
+  };
+  const pfWhen = (at) => new Date(at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+
+  function openPrivateFolder(view) {
+    if (view === "apps" || view === "notes") pfView = view;
+    if (pf.hidden) pfLastFocus = document.activeElement;
+    pfEditing = false;
+    pf.hidden = false;
+    renderPrivateFolder();
+  }
+  function closePrivateFolder() {
+    if (pf.hidden) return;
+    if (saveTimer) flushLayout();
+    pf.hidden = true;
+    pf.textContent = "";
+    if (pfLastFocus && document.contains(pfLastFocus)) pfLastFocus.focus();
+    pfLastFocus = null;
+  }
+
+  /* the backdrop and box are built once per opening, so their entrance
+     plays once; a redraw (a tab switch, an edit, lock / unlock) only swaps
+     what's inside. `switched`: the contents fade in, the tab keeps focus. */
+  function renderPrivateFolder(switched) {
+    if (pf.hidden) return;
+    let box = pf.querySelector(".pf-box");
+    if (!box) {
+      box = pfEl("div", "pf-box");
+      const backdrop = pfEl("div", "pf-backdrop");
+      backdrop.addEventListener("click", closePrivateFolder);
+      pf.append(backdrop, box);
+    }
+    const oldMain = box.querySelector(".pf-main");
+    const scroll = oldMain ? oldMain.scrollTop : 0;
+    const ws = vaultWs();
+    const oldHead = box.querySelector(".pf-head");
+
+    /* a tab switch keeps the header, so the pill slides across */
+    if (switched && oldHead && oldMain) {
+      oldHead.querySelectorAll(".pf-seg-btn").forEach((b) => {
+        const on = b.dataset.view === pfView;
+        b.classList.toggle("is-on", on);
+        b.setAttribute("aria-selected", String(on));
+      });
+      const seg = oldHead.querySelector(".pf-seg");
+      if (seg) seg.dataset.on = pfView;
+      const main = pfEl("div", "pf-main is-switching");
+      if (pfView === "notes") pfNotes(main, ws);
+      else pfApps(main, ws);
+      oldMain.replaceWith(main);
+      return;
+    }
+    box.textContent = "";
+
+    const head = pfEl("div", "pf-head");
+    const title = pfEl("div", "pf-title");
+    title.innerHTML = svgIcon(ws ? "unlock" : "lock");
+    title.append(pfEl("span", "", "Private"));
+    head.append(title);
+    if (ws) {
+      const seg = pfEl("div", "pf-seg");
+      seg.setAttribute("role", "tablist");
+      seg.dataset.on = pfView;
+      seg.append(pfEl("span", "pf-seg-pill"));
+      [["apps", "Shortcuts"], ["notes", "Notes"]].forEach(([v, t]) => {
+        const b = pfBtn("pf-seg-btn" + (pfView === v ? " is-on" : ""), t, () => {
+          if (pfView === v) return;
+          pfView = v;
+          pfEditing = false;
+          renderPrivateFolder(true);
+        });
+        b.dataset.view = v;
+        b.setAttribute("role", "tab");
+        b.setAttribute("aria-selected", String(pfView === v));
+        seg.append(b);
+      });
+      head.append(seg, pfBtn("pf-lock", "Lock", () => V.lock(), "Lock the private folder"));
+    }
+    head.append(pfBtn("pf-x", "✕", closePrivateFolder, "Close"));
+    box.append(head);
+
+    const main = pfEl("div", "pf-main");
+    box.append(main);
+    if (!V || !V.supported) {
+      main.append(pfEl("p", "pf-empty", "This browser can't encrypt data here, so the private folder isn't available."));
+    } else if (!V.exists()) {
+      const intro = pfEl("div", "pf-lockscreen");
+      const icon = pfEl("div", "pf-bigicon");
+      icon.innerHTML = svgIcon("lock");
+      intro.append(icon, pfEl("h2", "pf-h", "Private folder"),
+        pfEl("p", "pf-sub", "Hide shortcuts and notes behind a password, like a hidden folder on your phone. Everything inside is encrypted."),
+        pfBtn("pf-primary", "Set it up", () => { closePrivateFolder(); AS.open("privacy"); }));
+      main.append(intro);
+    } else if (!ws) {
+      main.append(pfLockScreen());
+    } else if (pfView === "notes") {
+      pfNotes(main, ws);
+    } else {
+      pfApps(main, ws);
+    }
+    main.scrollTop = scroll; // an edit keeps your place
+    const first = pf.querySelector(".pf-pw") || pf.querySelector(".pf-x");
+    if (first) first.focus();
+  }
+
+  function pfLockScreen() {
+    const form = pfEl("form", "pf-lockscreen");
+    form.autocomplete = "off";
+    const icon = pfEl("div", "pf-bigicon");
+    icon.innerHTML = svgIcon("lock");
+    const pw = pfEl("input", "pf-input pf-pw");
+    pw.type = "password";
+    pw.placeholder = "Password";
+    pw.autocomplete = "current-password";
+    pw.setAttribute("aria-label", "Password");
+    const go = pfEl("button", "pf-primary", "Unlock");
+    go.type = "submit";
+    const msg = pfEl("p", "pf-err");
+    msg.hidden = true;
+    msg.setAttribute("role", "alert");
+    form.append(icon, pfEl("h2", "pf-h", "Private folder is locked"), pfEl("p", "pf-sub", "Enter your password to open it."), pw, go, msg);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!pw.value) { msg.textContent = "Enter your password."; msg.hidden = false; return; }
+      go.disabled = true;
+      go.textContent = "Unlocking…";
+      try {
+        await V.unlock(pw.value); // the unlock event redraws this as the folder
+      } catch (err) {
+        msg.textContent = err.code === "wrong" ? "That password isn't right." : "Couldn't unlock: " + err.message;
+        msg.hidden = false;
+        form.classList.remove("is-shake");
+        void form.offsetWidth; // replay the shake
+        form.classList.add("is-shake");
+        go.disabled = false;
+        go.textContent = "Unlock";
+        pw.select();
+      }
+    });
+    return form;
+  }
+
+  /* the shortcuts, section by section, as app icons */
+  function pfApps(main, ws) {
+    const bar = pfEl("div", "pf-bar");
+    bar.append(
+      pfEl("span", "pf-count", ws.cards.reduce((n, c) => n + c.items.length, 0) + " shortcuts"),
+      pfBtn("pf-chip" + (pfEditing ? " is-on" : ""), pfEditing ? "Done" : "Edit", () => { pfEditing = !pfEditing; renderPrivateFolder(); }),
+      pfBtn("pf-chip", "Open on the dock", () => { closePrivateFolder(); openVault(); }));
+    main.append(bar);
+
+    if (!ws.cards.length) ws.cards.push({ id: uid("card"), title: "Private", hint: "", items: [] });
+    ws.cards.forEach((card) => {
+      const sec = pfEl("section", "pf-sec");
+      sec.append(pfEl("h3", "pf-sec-title", card.title || "Section"));
+      const grid = pfEl("div", "pf-grid" + (pfEditing ? " is-editing" : ""));
+      card.items.forEach((item) => {
+        const a = pfEl("a", "pf-app");
+        a.href = item.url;
+        a.title = item.name + "\n" + item.url;
+        const ic = pfEl("span", "pf-app-icon");
+        ic.append(makeIcon(item, "pf-app-img"));
+        a.append(ic, pfEl("span", "pf-app-name", item.name));
+        a.addEventListener("click", (e) => {
+          if (pfEditing) return e.preventDefault();
+          if (e.ctrlKey || e.metaKey || e.shiftKey) return; // a new tab / window, as usual
+          e.preventDefault();
+          if (saveTimer) flushLayout();
+          openShortcut(item);
+        });
+        if (pfEditing) {
+          a.append(pfBtn("pf-app-del", "✕", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!confirm('Remove "' + item.name + '" from the private folder?')) return;
+            card.items.splice(card.items.indexOf(item), 1);
+            saveLayout();
+            if (launcherOpen) renderLauncher();
+            renderPrivateFolder();
+          }, "Remove " + item.name));
+        }
+        grid.append(a);
+      });
+      const add = pfBtn("pf-app pf-app-add", "", () => pfAddForm(sec, card), "Add a shortcut to " + (card.title || "this section"));
+      add.append(pfEl("span", "pf-app-icon", "+"), pfEl("span", "pf-app-name", "Add"));
+      grid.append(add);
+      sec.append(grid);
+      main.append(sec);
+    });
+  }
+
+  function pfAddForm(sec, card) {
+    const old = pf.querySelector(".pf-add");
+    if (old) old.remove();
+    const form = pfEl("form", "pf-add");
+    form.autocomplete = "off";
+    const name = pfEl("input", "pf-input");
+    name.placeholder = "Name";
+    name.maxLength = 60;
+    name.setAttribute("aria-label", "Name");
+    const url = pfEl("input", "pf-input");
+    url.placeholder = "example.com";
+    url.spellcheck = false;
+    url.setAttribute("aria-label", "Web address");
+    const save = pfEl("button", "pf-primary", "Add");
+    save.type = "submit";
+    const msg = pfEl("p", "pf-err");
+    msg.hidden = true;
+    form.append(name, url, save, pfBtn("pf-chip", "Cancel", () => form.remove()), msg);
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const u = normalizeUrl(url.value);
+      const n = name.value.trim() || hostOf(u);
+      if (!u || !n) {
+        msg.textContent = "Give it a web address, like github.com";
+        msg.hidden = false;
+        return url.focus();
+      }
+      card.items.push({ id: uid("item"), name: n.slice(0, 60), url: u, icon: "" });
+      saveLayout();
+      if (launcherOpen) renderLauncher();
+      renderPrivateFolder();
+    });
+    form.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); form.remove(); }
+    });
+    sec.append(form);
+    name.focus();
+  }
+
+  /* the private notes: a title and text each, saved (encrypted) as typed */
+  function pfNotes(main, ws) {
+    const bar = pfEl("div", "pf-bar");
+    bar.append(
+      pfEl("span", "pf-count", ws.notes.length + " notes"),
+      pfBtn("pf-chip is-on", "+ New note", () => {
+        ws.notes.unshift({ id: uid("note"), title: "", text: "", at: Date.now() });
+        saveLayout();
+        renderPrivateFolder();
+        const first = pf.querySelector(".pf-note-title");
+        if (first) first.focus();
+      }));
+    main.append(bar);
+    if (!ws.notes.length) main.append(pfEl("p", "pf-empty", "No private notes yet. They're encrypted along with everything else here."));
+    const list = pfEl("div", "pf-notes");
+    ws.notes.forEach((n) => {
+      const title = pfEl("input", "pf-note-title");
+      title.value = n.title;
+      title.placeholder = "Title";
+      title.setAttribute("aria-label", "Note title");
+      const text = pfEl("textarea", "pf-note-text");
+      text.value = n.text;
+      text.placeholder = "Write something…";
+      text.rows = 3;
+      text.setAttribute("aria-label", "Note");
+      const fit = () => { text.style.height = "auto"; text.style.height = text.scrollHeight + "px"; };
+      const time = pfEl("span", "", pfWhen(n.at));
+      const foot = pfEl("div", "pf-note-foot");
+      foot.append(time, pfBtn("pf-chip", "Delete", () => {
+        if ((n.title || n.text) && !confirm('Delete "' + (n.title || "Untitled") + '"?')) return;
+        ws.notes.splice(ws.notes.indexOf(n), 1);
+        saveLayout();
+        renderPrivateFolder();
+      }));
+      const edit = () => {
+        n.title = title.value;
+        n.text = text.value;
+        n.at = Date.now();
+        time.textContent = pfWhen(n.at);
+        saveLayout();
+      };
+      title.addEventListener("input", edit);
+      text.addEventListener("input", () => { fit(); edit(); });
+      const card = pfEl("div", "pf-note");
+      card.append(title, text, foot);
+      list.append(card);
+      requestAnimationFrame(fit);
+    });
+    main.append(list);
+  }
+
+  pf.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePrivateFolder(); }
+  });
+  if (V) V.on((type) => {
+    if (type === "beforelock" || pf.hidden) return;
+    /* a lock swaps the contents for the password screen at once */
+    if (type === "destroy") closePrivateFolder();
+    else renderPrivateFolder();
+  });
+  AS.app.openPrivateFolder = openPrivateFolder;
+
+  /* auto-lock after the idle time picked in Customize > Privacy */
+  let lastActive = Date.now();
+  ["pointerdown", "pointermove", "keydown", "wheel"].forEach((ev) =>
+    addEventListener(ev, () => (lastActive = Date.now()), { capture: true, passive: true }));
+  setInterval(() => {
+    const mins = AS.get().privacy.autoLock;
+    if (mins > 0 && V && V.isUnlocked() && Date.now() - lastActive > mins * 60000) V.lock();
+  }, 15000);
 
   /* Reads whatever is in storage and works out what to do with it:
        - nothing stored            -> config.js defaults (first launch)
@@ -438,6 +901,11 @@
     music: '<path d="M9 17V6l10-2v11"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="15" r="2"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M6 18l1.4-1.4M16.6 7.4 18 6"/>',
     palette: '<path d="M12 4a8 8 0 1 0 0 16c1 0 1.6-.7 1.6-1.5 0-.9-.9-1.4-.9-2.4 0-.9.7-1.6 1.6-1.6H16a4 4 0 0 0 4-4C20 6.9 16.4 4 12 4z"/><circle cx="7.8" cy="11.2" r=".9"/><circle cx="10.2" cy="7.9" r=".9"/><circle cx="14.2" cy="7.9" r=".9"/>',
+    lock: '<rect x="5.5" y="10.5" width="13" height="9" rx="2.2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/><path d="M12 14.2v1.8"/>',
+    unlock: '<rect x="5.5" y="10.5" width="13" height="9" rx="2.2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 6.8-1.2"/><path d="M12 14.2v1.8"/>',
+    shield: '<path d="M12 3.5 5.5 6v5.5c0 4 2.8 7.3 6.5 8.5 3.7-1.2 6.5-4.5 6.5-8.5V6z"/><circle cx="12" cy="11" r="1.6"/><path d="M12 12.6v2.6"/>',
+    bell: '<path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5h-14z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+    tabs: '<rect x="4" y="6" width="16" height="13" rx="2"/><path d="M4 10h16M8 6v4"/><path d="M12 13v4M10 15h4"/>',
   };
   const svgIcon = (key) =>
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -445,6 +913,7 @@
 
   /* a workspace may name its own icon (ws.icon); otherwise guess from the name */
   function railIconKey(ws) {
+    if (ws.private) return "shield";
     if (ws.icon && ICON_PATHS[ws.icon]) return ws.icon;
     const n = ws.name.toLowerCase();
     if (/personal|home|\bme\b|main/.test(n)) return "home";
@@ -475,6 +944,8 @@
         letter.textContent = w.name[0].toUpperCase();
         b.appendChild(letter);
       }
+      if (w.private) b.classList.add("is-private");
+      if (w.private && vaultArriving) b.classList.add("is-arriving");
       if (w.id === activeWs) {
         b.classList.add("is-on");
         b.setAttribute("aria-current", "true");
@@ -495,6 +966,23 @@
     sep.className = "rail-sep";
     rail.appendChild(sep);
 
+    /* the private space's lock: unlocks it (password), or locks it again */
+    if (V && V.exists() && AS.get().privacy.dock) {
+      const open = V.isUnlocked();
+      const lock = document.createElement("button");
+      lock.type = "button";
+      lock.className = "rail-btn rail-lock" + (open ? " is-open" : "") + (open && vaultArriving ? " is-arriving" : "");
+      lock.dataset.label = open ? "Private folder (right-click to lock)" : "Private folder";
+      lock.setAttribute("aria-label", open ? "Open the private folder" : "Unlock the private folder");
+      lock.innerHTML = svgIcon(open ? "unlock" : "lock");
+      /* the hidden folder: a password screen, then the private shortcuts
+         and notes; right-click locks it straight away */
+      lock.addEventListener("click", () => (pf.hidden ? openPrivateFolder() : closePrivateFolder()));
+      lock.addEventListener("contextmenu", (e) => { if (open) { e.preventDefault(); V.lock(); } });
+      rail.appendChild(lock);
+    }
+    vaultArriving = false;
+
     const gear = document.createElement("button");
     gear.type = "button";
     gear.className = "rail-btn";
@@ -512,6 +1000,18 @@
     paint.innerHTML = svgIcon("palette");
     paint.addEventListener("click", () => (AS.isOpen() ? AS.close() : AS.open()));
     rail.appendChild(paint);
+
+    /* reminders.js loads after this file, so it is looked up on click */
+    const bell = document.createElement("button");
+    bell.type = "button";
+    bell.className = "rail-btn rail-bell";
+    bell.id = "railBell";
+    bell.dataset.label = "Reminders";
+    bell.setAttribute("aria-label", "Reminders");
+    bell.innerHTML = svgIcon("bell");
+    if (window.AtlasReminders && AtlasReminders.isOpen()) bell.classList.add("is-lit");
+    bell.addEventListener("click", () => window.AtlasReminders && AtlasReminders.toggle());
+    rail.appendChild(bell);
   }
 
   function setLauncherOpen(open) {
@@ -527,6 +1027,7 @@
   /* the section tab to show; falls back to "All" if it was deleted */
   function activeTab(ws) {
     const t = tabs[ws.id];
+    if (t === "notes" && ws.private) return "notes";
     return t && ws.cards.some((c) => c.id === t) ? t : "all";
   }
 
@@ -534,7 +1035,7 @@
     const ws = currentWs();
     if (!ws) return;
     tabs[ws.id] = id;
-    store.set({ launcherTabs: JSON.stringify(tabs) });
+    if (!ws.private) store.set({ launcherTabs: JSON.stringify(tabs) });
     renderLauncher();
   }
 
@@ -545,6 +1046,7 @@
     tabsEl.textContent = "";
     toolsEl.textContent = "";
     gridEl.textContent = "";
+    launcherEl.classList.toggle("is-private", !!(ws && ws.private));
     if (!ws) return;
     const tab = activeTab(ws);
 
@@ -556,7 +1058,8 @@
       b.setAttribute("aria-selected", String(id === tab));
       b.textContent = label;
       if (hint) b.title = hint;
-      if (id !== "all") {
+      if (id === "notes") b.classList.add("ltab-notes");
+      else if (id !== "all") {
         /* right-click on a section tab opens the same menu as its ⋮ */
         b.dataset.kind = "card";
         b.dataset.id = id;
@@ -568,23 +1071,40 @@
     };
     addTab("all", "All");
     ws.cards.forEach((c) => addTab(c.id, c.title, c.hint));
+    if (ws.private) addTab("notes", "Notes", "Private notes");
+
+    const notes = tab === "notes";
+    if (tab !== "all" && !notes) toolsEl.appendChild(menuButton("card", tab, "Section options"));
+    if (ws.private && !notes && canReadTabs) {
+      const save = document.createElement("button");
+      save.type = "button";
+      save.className = "ltool ltool-icon";
+      save.dataset.act = "save-tabs";
+      save.setAttribute("aria-label", "Save this window's open tabs");
+      save.title = tab === "all" ? "Save open tabs as a new section" : "Save open tabs to this section";
+      save.innerHTML = svgIcon("tabs");
+      toolsEl.appendChild(save);
+    }
+    const addSection = document.createElement("button");
+    addSection.type = "button";
+    addSection.className = "ltool";
+    addSection.dataset.act = notes ? "add-note" : "add-card";
+    addSection.setAttribute("aria-label", notes ? "New note" : "Add section");
+    addSection.title = notes ? "New note" : "Add section";
+    addSection.textContent = "+";
+    toolsEl.appendChild(addSection);
+
     const on = tabsEl.querySelector(".is-on");
     if (on) {
-      /* keep the chosen tab visible when the row overflows */
+      /* keep the chosen tab visible when the row overflows (measured once
+         the tools beside the row are in, since they narrow it) */
       const l = on.offsetLeft, r = l + on.offsetWidth;
       if (l < tabsEl.scrollLeft) tabsEl.scrollLeft = l - 8;
       else if (r > tabsEl.scrollLeft + tabsEl.clientWidth) tabsEl.scrollLeft = r - tabsEl.clientWidth + 8;
     }
 
-    if (tab !== "all") toolsEl.appendChild(menuButton("card", tab, "Section options"));
-    const addSection = document.createElement("button");
-    addSection.type = "button";
-    addSection.className = "ltool";
-    addSection.dataset.act = "add-card";
-    addSection.setAttribute("aria-label", "Add section");
-    addSection.title = "Add section";
-    addSection.textContent = "+";
-    toolsEl.appendChild(addSection);
+    gridEl.classList.toggle("is-notes", notes);
+    if (notes) return renderNotes(ws);
 
     const shown = tab === "all" ? ws.cards : ws.cards.filter((c) => c.id === tab);
     const entries = shown.flatMap((c) => c.items.map((it) => [c, it]));
@@ -636,6 +1156,125 @@
     return cell;
   }
 
+  /* --- private notes: editable cards in the private space's Notes tab.
+     Typing saves (encrypted, debounced through saveLayout) without a
+     redraw, so the caret never jumps. */
+  function renderNotes(ws) {
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "note-add";
+    add.dataset.act = "add-note";
+    add.innerHTML = '<span aria-hidden="true">+</span>';
+    add.append(ws.notes.length ? "New note" : "Write your first private note");
+    gridEl.appendChild(add);
+    ws.notes.forEach((n, i) => gridEl.appendChild(renderNote(n, i)));
+  }
+
+  const noteTime = (at) =>
+    new Date(at).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: !AS.get().widgets.clock.h24 });
+
+  function renderNote(n, i) {
+    const el = document.createElement("article");
+    el.className = "note";
+    el.style.setProperty("--i", Math.min(i + 1, 18));
+    const title = document.createElement("input");
+    title.className = "note-title";
+    title.type = "text";
+    title.placeholder = "Untitled";
+    title.value = n.title;
+    title.spellcheck = false;
+    title.setAttribute("aria-label", "Note title");
+    const text = document.createElement("textarea");
+    text.className = "note-text";
+    text.placeholder = "Write something…";
+    text.value = n.text;
+    text.rows = 4;
+    text.setAttribute("aria-label", "Note");
+    const foot = document.createElement("div");
+    foot.className = "note-foot";
+    const time = document.createElement("span");
+    time.className = "note-time";
+    time.textContent = noteTime(n.at);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "note-del";
+    del.dataset.act = "del-note";
+    del.dataset.id = n.id;
+    del.setAttribute("aria-label", "Delete note");
+    del.title = "Delete note";
+    del.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6.5 7l1 12h9l1-12"/></svg>';
+    foot.append(time, del);
+    const edit = () => {
+      n.title = title.value;
+      n.text = text.value;
+      n.at = Date.now();
+      time.textContent = noteTime(n.at);
+      saveLayout();
+    };
+    title.addEventListener("input", edit);
+    text.addEventListener("input", edit);
+    el.append(title, text, foot);
+    return el;
+  }
+
+  function addNote() {
+    const ws = vaultWs();
+    if (!ws) return;
+    ws.notes.unshift({ id: uid("note"), title: "", text: "", at: Date.now() });
+    tabs[ws.id] = "notes";
+    commit();
+    const first = gridEl.querySelector(".note-title");
+    if (first) first.focus();
+  }
+
+  function deleteNote(id) {
+    const ws = vaultWs();
+    if (!ws) return;
+    const i = ws.notes.findIndex((n) => n.id === id);
+    if (i < 0) return;
+    const n = ws.notes[i];
+    if ((n.title || n.text) && !confirm('Delete "' + (n.title || "Untitled") + '"?')) return;
+    ws.notes.splice(i, 1);
+    commit();
+  }
+
+  /* --- "Save open tabs": every web page open in this window becomes a
+     shortcut. Without the "tabs" permission Chrome still reports the URL
+     and title of pages the extension has host access to (all http/https). */
+  const canReadTabs = typeof chrome !== "undefined" && !!(chrome.tabs && chrome.tabs.query);
+
+  async function saveOpenTabs() {
+    const ws = vaultWs();
+    if (!ws || !canReadTabs || currentWs() !== ws) return;
+    let list = [];
+    try { list = await chrome.tabs.query({ currentWindow: true }); } catch { list = []; }
+    const tab = activeTab(ws);
+    let card = tab !== "all" && tab !== "notes" ? findCard(tab) : null;
+    const have = new Set(card ? card.items.map((it) => it.url) : []);
+    const items = [];
+    list.forEach((t) => {
+      const url = t.url || "";
+      if (!/^https?:\/\//i.test(url) || have.has(url)) return;
+      have.add(url);
+      items.push({
+        id: uid("item"),
+        name: (t.title || hostOf(url) || url).trim().slice(0, 60),
+        url,
+        icon: /^https:\/\//i.test(t.favIconUrl || "") ? t.favIconUrl : "",
+      });
+    });
+    if (!items.length) return toast("No new web pages open in this window");
+    if (!card) {
+      const day = new Date().toLocaleDateString([], { day: "numeric", month: "short" });
+      card = { id: uid("card"), title: "Tabs · " + day, hint: "Saved tabs", items: [] };
+      ws.cards.push(card);
+      tabs[ws.id] = card.id;
+    }
+    card.items.push(...items);
+    commit();
+    toast("Saved " + items.length + " tab" + (items.length === 1 ? "" : "s") + ' to "' + card.title + '"');
+  }
+
   /* the ⋮ trigger; the menu itself is built on demand in openMenu() */
   function menuButton(kind, id, label, parent) {
     const b = document.createElement("button");
@@ -657,7 +1296,7 @@
   function setWorkspace(id) {
     if (!WORKSPACES.some((w) => w.id === id) || id === activeWs) return;
     activeWs = id;
-    store.set({ workspace: id });
+    if (id !== VAULT_ID) store.set({ workspace: id }); // a new tab always opens outside it
     renderRail();
     renderLauncher();
   }
@@ -855,7 +1494,7 @@
   /* small "Removed … Undo" note above the search bar */
   const toastEl = $("toast");
   let toastTimer = 0;
-  function toast(text, undo) {
+  function toast(text, undo, label) {
     clearTimeout(toastTimer);
     toastEl.textContent = "";
     const msg = document.createElement("span");
@@ -864,7 +1503,7 @@
     if (undo) {
       const b = document.createElement("button");
       b.type = "button";
-      b.textContent = "Undo";
+      b.textContent = label || "Undo";
       b.addEventListener("click", () => { toastEl.hidden = true; undo(); });
       toastEl.appendChild(b);
     }
@@ -977,14 +1616,14 @@
   let dlgSubmit = null;
   let dlgLastFocus = null;
 
-  function field(label, name, value, placeholder, hintText) {
+  function field(label, name, value, placeholder, hintText, type) {
     const wrap = document.createElement("label");
     wrap.className = "ed-field";
     const span = document.createElement("span");
     span.className = "ed-label";
     span.textContent = label;
     const input = document.createElement("input");
-    input.type = "text";
+    input.type = type || "text";
     input.name = name;
     input.value = value || "";
     input.autocomplete = "off";
@@ -1151,6 +1790,9 @@
     if (act === "menu") { e.preventDefault(); openMenu(trigger); }
     else if (act === "add-item") { e.preventDefault(); editItem(trigger.dataset.card, null); }
     else if (act === "add-card") { e.preventDefault(); addCard(); }
+    else if (act === "add-note") { e.preventDefault(); addNote(); }
+    else if (act === "del-note") { e.preventDefault(); deleteNote(trigger.dataset.id); }
+    else if (act === "save-tabs") { e.preventDefault(); saveOpenTabs(); }
   });
 
   /* close the menu on an outside click, and on scroll/resize where the
@@ -1182,6 +1824,9 @@
   /* ================= QUICK PEEK (most-used shortcuts) ==================== */
   let usage = {};
   function bumpUsage(item) {
+    /* usage is stored in the clear and shown by Quick Peek — private
+       shortcuts stay out of it */
+    if (isPrivateItem(item)) return;
     const k = item.url;
     usage[k] = usage[k] || { name: item.name, icon: item.icon, url: item.url, n: 0 };
     usage[k].n += 1;
@@ -1223,24 +1868,411 @@
   });
 
   /* ================= SEARCH ==============================================
-     The engine is picked in Customize > Widgets > Search bar. A custom URL
-     may mark the query with %s; otherwise the query is appended. */
-  function searchUrl(q) {
-    const url = AS.engine().url;
+     The bar searches the default engine (Customize > Widgets > Search bar),
+     switched from the engine button on its left. "!yt cats" sends a single
+     search to another engine by its keyword. An engine URL may mark the
+     query with %s; otherwise the query is appended.
+     History is kept apart: it is only shown in its own panel (the clock
+     button), never as suggestions under the field. */
+  const qEl = $("q");
+  const engineBtn = $("searchEngine");
+  const engineIconEl = $("searchEngineIcon");
+  const engineMenu = $("engineMenu");
+  const histBtn = $("searchHist");
+  const histPanel = $("histPanel");
+  const HISTORY_KEY = "searchHistory";
+  const HISTORY_MAX = 100;
+  let searches = [];    // history: [{ q, engine, at }], newest first
+  let shownEngine = ""; // engine id the icon currently shows
+
+  function searchUrl(q, eng) {
+    const url = (eng || AS.engine()).url;
     const term = encodeURIComponent(q);
-    return url.includes("%s") ? url.replace("%s", term) : url + term;
+    return url.includes("%s") ? url.split("%s").join(term) : url + term;
   }
+
+  /* "!yt cats" -> { engine: YouTube, term: "cats" }; anything else goes to
+     the default engine unchanged */
+  function parseQuery(raw) {
+    const q = raw.trim();
+    const m = q.match(/^!(\S+)(?:\s+([\s\S]*))?$/);
+    if (m) {
+      const key = m[1].toLowerCase();
+      const eng = AS.engines().find((e) => e.key && e.key === key);
+      if (eng) return { engine: eng, term: (m[2] || "").trim(), bang: true };
+    }
+    return { engine: AS.engine(), term: q, bang: false };
+  }
+
+  /* an engine's badge: its icon from config.js, or a letter on its colour */
+  function engineBadge(eng, cls) {
+    if (eng.icon && iconSrc(eng.icon)) return makeIcon({ name: eng.label, icon: eng.icon }, cls + " is-img");
+    const b = document.createElement("span");
+    b.className = cls + " is-mono";
+    b.textContent = eng.mono || eng.label[0];
+    b.style.setProperty("--tint", eng.tint || "var(--accent)");
+    return b;
+  }
+
+  function showEngine(eng, bang) {
+    engineBtn.classList.toggle("is-bang", !!bang);
+    if (shownEngine === eng.id) return;
+    shownEngine = eng.id;
+    engineIconEl.textContent = "";
+    engineIconEl.appendChild(engineBadge(eng, "sx-badge"));
+    engineBtn.setAttribute("aria-label", "Search engine: " + eng.label + ". Change");
+    engineBtn.title = eng.label;
+    /* a small hop so the switch registers */
+    engineIconEl.classList.remove("is-swap");
+    void engineIconEl.offsetWidth;
+    engineIconEl.classList.add("is-swap");
+  }
+
   function syncSearchLabel() {
     const label = "Search " + AS.engine().label;
-    $("q").placeholder = label + "...";
-    $("q").setAttribute("aria-label", label);
+    qEl.placeholder = label + "...";
+    qEl.setAttribute("aria-label", label);
+    const p = parseQuery(qEl.value);
+    showEngine(p.engine, p.bang);
+    histBtn.hidden = !AS.get().widgets.search.history;
+    if (histBtn.hidden) closeSearchPop(true);
   }
+  /* the icon previews a !keyword as it is typed */
+  qEl.addEventListener("input", () => {
+    const p = parseQuery(qEl.value);
+    showEngine(p.engine, p.bang);
+  });
+
+  /* every search — the bar, history, the Command Center — ends here */
+  function runSearch(term, eng) {
+    const t = String(term || "").trim();
+    if (!t) return;
+    const e = eng || AS.engine();
+    remember(t, e.id);
+    window.location.href = searchUrl(t, e);
+  }
+
   $("search").addEventListener("submit", (e) => {
     e.preventDefault();
-    const q = $("q").value.trim();
-    if (!q) return;
-    window.location.href = searchUrl(q);
+    const p = parseQuery(qEl.value);
+    if (!p.term) return;
+    runSearch(p.term, p.engine);
   });
+
+  /* --- voice typing: the mic on the bar (Customize > Language). What
+     you say fills the field as you speak; when you stop, it searches
+     (or waits for Enter, if "Search when I stop talking" is off). --- */
+  const Voice = window.AtlasVoice;
+  const searchMic = $("searchMic");
+  let searchRec = null;
+
+  /* the language voice typing listens for: its own setting, else the one
+     passed in (the assistant's answer language), else the translation
+     language, else Chrome's */
+  function listenTag(fallback) {
+    const L = AS.get().language;
+    const code = L.voiceLang !== "auto" ? L.voiceLang : fallback && fallback !== "auto" ? fallback : L.lang;
+    return Voice.speechTag(code);
+  }
+  function micTrouble(err, show) {
+    const text = Voice.errorText(err);
+    if (!text) return;
+    const blocked = err === "not-allowed" || err === "service-not-allowed";
+    show(text, blocked ? () => Voice.openMicSetup() : null, "Allow microphone");
+  }
+  function syncSearchMic() {
+    searchMic.hidden = !Voice || !Voice.canListen || !AS.get().language.searchMic;
+    if (searchMic.hidden && searchRec) searchRec.abort();
+  }
+  function searchByVoice() {
+    if (searchRec) return searchRec.stop();
+    if (!Voice) return;
+    const before = qEl.value;
+    searchMic.classList.add("is-live");
+    searchMic.setAttribute("aria-pressed", "true");
+    qEl.placeholder = "Listening…";
+    searchRec = Voice.listen({
+      lang: listenTag(),
+      onText: (t) => {
+        qEl.value = t;
+        qEl.dispatchEvent(new Event("input"));
+      },
+      onEnd: (t, err) => {
+        searchRec = null;
+        searchMic.classList.remove("is-live");
+        searchMic.setAttribute("aria-pressed", "false");
+        syncSearchLabel();
+        qEl.focus();
+        if (!t) {
+          qEl.value = before;
+          qEl.dispatchEvent(new Event("input"));
+          if (err && err !== "aborted") micTrouble(err, toast);
+          return;
+        }
+        qEl.value = t;
+        qEl.dispatchEvent(new Event("input"));
+        if (AS.get().language.searchAuto) $("search").requestSubmit();
+      },
+    });
+  }
+  searchMic.addEventListener("click", searchByVoice);
+  qEl.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && searchRec) searchRec.abort();
+  });
+
+  /* --- history --- */
+  function remember(q, engineId) {
+    if (!AS.get().widgets.search.history) return;
+    searches = searches.filter((h) => !(h.q === q && h.engine === engineId));
+    searches.unshift({ q, engine: engineId, at: Date.now() });
+    if (searches.length > HISTORY_MAX) searches.length = HISTORY_MAX;
+    saveHistory();
+  }
+  function saveHistory() {
+    store.set({ [HISTORY_KEY]: JSON.stringify(searches) });
+  }
+  function loadHistory(raw) {
+    try {
+      const list = typeof raw === "string" ? JSON.parse(raw) : raw;
+      searches = (Array.isArray(list) ? list : [])
+        .filter((h) => h && typeof h.q === "string" && h.q.trim())
+        .map((h) => ({ q: h.q, engine: typeof h.engine === "string" ? h.engine : "google", at: Number(h.at) || 0 }))
+        .slice(0, HISTORY_MAX);
+    } catch { searches = []; }
+  }
+  AS.app.clearSearchHistory = () => {
+    searches = [];
+    saveHistory();
+    if (!histPanel.hidden) renderHistory();
+  };
+
+  function ago(at) {
+    const s = Math.max(0, (Date.now() - at) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return Math.floor(s / 60) + "m ago";
+    if (s < 86400) return Math.floor(s / 3600) + "h ago";
+    if (s < 86400 * 7) return Math.floor(s / 86400) + "d ago";
+    return new Date(at).toLocaleDateString([], { day: "numeric", month: "short" });
+  }
+
+  /* --- the two pop-ups (engine menu, history panel) ---------------------
+     They sit outside the bar (its backdrop blur would flatten theirs) and
+     are placed against it: above when the bar is low on the screen, below
+     when it has been moved up. */
+  let popOpen = null; // the pop-up showing, if any
+
+  function placePop(pop, alignRight) {
+    const r = $("search").getBoundingClientRect();
+    const below = r.top + r.height / 2 < innerHeight / 2;
+    pop.classList.toggle("is-below", below);
+    pop.style.top = below ? r.bottom + 10 + "px" : "auto";
+    pop.style.bottom = below ? "auto" : innerHeight - r.top + 10 + "px";
+    const w = pop.offsetWidth;
+    const left = alignRight ? r.right - w : r.left;
+    pop.style.left = Math.max(8, Math.min(left, innerWidth - w - 8)) + "px";
+  }
+
+  function openSearchPop(pop, btn) {
+    closeSearchPop(true);
+    popOpen = pop;
+    pop.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    btn.classList.add("is-open");
+    placePop(pop, pop === histPanel);
+  }
+  function closeSearchPop(silent) {
+    if (!popOpen) return;
+    const pop = popOpen;
+    popOpen = null;
+    const hadFocus = pop.contains(document.activeElement);
+    pop.hidden = true;
+    [engineBtn, histBtn].forEach((b) => { b.setAttribute("aria-expanded", "false"); b.classList.remove("is-open"); });
+    if (!silent && hadFocus) qEl.focus();
+  }
+
+  /* engine menu: every engine, the default marked, its !keyword beside it */
+  function renderEngineMenu() {
+    engineMenu.textContent = "";
+    const current = AS.engine().id;
+    const all = AS.engines();
+    const add = (list, title) => {
+      if (!list.length) return;
+      const g = document.createElement("div");
+      g.className = "sx-group";
+      g.textContent = title;
+      engineMenu.appendChild(g);
+      list.forEach((eng, i) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "sx-item" + (eng.id === current ? " is-on" : "");
+        b.setAttribute("role", "menuitemradio");
+        b.setAttribute("aria-checked", String(eng.id === current));
+        b.style.setProperty("--i", i);
+        b.appendChild(engineBadge(eng, "sx-badge"));
+        const name = document.createElement("span");
+        name.className = "sx-name";
+        name.textContent = eng.label;
+        b.appendChild(name);
+        if (eng.key) {
+          const k = document.createElement("kbd");
+          k.textContent = "!" + eng.key;
+          b.appendChild(k);
+        }
+        b.addEventListener("click", () => {
+          AS.set("widgets.search.engine", eng.id); // the settings listener re-syncs the bar
+          closeSearchPop(true);
+          qEl.focus();
+        });
+        engineMenu.appendChild(b);
+      });
+    };
+    add(all.filter((e) => !e.custom), "Search with");
+    add(all.filter((e) => e.custom), "Your engines");
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "sx-more";
+    more.textContent = "+ Add a custom engine";
+    more.addEventListener("click", () => { closeSearchPop(true); AS.open("widgets"); });
+    engineMenu.appendChild(more);
+  }
+
+  engineBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (popOpen === engineMenu) return closeSearchPop();
+    renderEngineMenu();
+    openSearchPop(engineMenu, engineBtn);
+    const on = engineMenu.querySelector(".sx-item.is-on") || engineMenu.querySelector(".sx-item");
+    if (on) on.focus();
+  });
+
+  /* history panel: a filter, the list, and Clear all */
+  let histFilter = "";
+  function renderHistory() {
+    histPanel.textContent = "";
+    const head = document.createElement("div");
+    head.className = "sx-hist-head";
+    const title = document.createElement("span");
+    title.className = "sx-hist-title";
+    title.textContent = "Recent searches";
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "sx-link";
+    clear.textContent = "Clear all";
+    clear.disabled = !searches.length;
+    clear.addEventListener("click", () => {
+      if (confirm("Clear your search history?")) AS.app.clearSearchHistory();
+    });
+    head.append(title, clear);
+
+    const filter = document.createElement("input");
+    filter.type = "text";
+    filter.className = "sx-filter";
+    filter.placeholder = "Filter history…";
+    filter.setAttribute("aria-label", "Filter search history");
+    filter.spellcheck = false;
+    filter.value = histFilter;
+
+    const list = document.createElement("div");
+    list.className = "sx-hist-list";
+    const paint = () => {
+      list.textContent = "";
+      const f = histFilter.trim().toLowerCase();
+      const rows = f ? searches.filter((h) => h.q.toLowerCase().includes(f)) : searches;
+      if (!rows.length) {
+        const empty = document.createElement("p");
+        empty.className = "sx-empty";
+        empty.textContent = searches.length ? "Nothing matches." : "Your searches will show up here.";
+        list.appendChild(empty);
+        return;
+      }
+      rows.slice(0, 50).forEach((h, i) => list.appendChild(historyRow(h, i)));
+    };
+    filter.addEventListener("input", () => { histFilter = filter.value; paint(); });
+    paint();
+    histPanel.append(head, filter, list);
+  }
+
+  function historyRow(h, i) {
+    const eng = AS.findEngine(h.engine) || AS.engine();
+    const row = document.createElement("div");
+    row.className = "sx-row";
+    row.style.setProperty("--i", Math.min(i, 12));
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "sx-row-go";
+    go.title = "Search " + eng.label + " again";
+    go.appendChild(engineBadge(eng, "sx-badge"));
+    const text = document.createElement("span");
+    text.className = "sx-row-q";
+    text.textContent = h.q;
+    const when = document.createElement("span");
+    when.className = "sx-row-when";
+    when.textContent = ago(h.at);
+    go.append(text, when);
+    go.addEventListener("click", () => runSearch(h.q, eng));
+
+    const put = document.createElement("button");
+    put.type = "button";
+    put.className = "sx-row-btn";
+    put.title = "Edit in the search bar";
+    put.setAttribute("aria-label", "Put “" + h.q + "” in the search bar");
+    put.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 17 7 7M7 15V7h8"/></svg>';
+    put.addEventListener("click", () => {
+      /* a search made on another engine comes back as its !keyword */
+      const other = eng.id !== AS.engine().id && eng.key;
+      qEl.value = (other ? "!" + eng.key + " " : "") + h.q;
+      qEl.dispatchEvent(new Event("input"));
+      closeSearchPop(true);
+      qEl.focus();
+      qEl.setSelectionRange(qEl.value.length, qEl.value.length);
+    });
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "sx-row-btn is-del";
+    del.title = "Remove from history";
+    del.setAttribute("aria-label", "Remove “" + h.q + "” from history");
+    del.textContent = "✕";
+    del.addEventListener("click", () => {
+      searches = searches.filter((x) => x !== h);
+      saveHistory();
+      row.classList.add("is-leaving");
+      setTimeout(() => { if (popOpen === histPanel) renderHistory(); }, 180);
+    });
+    row.append(go, put, del);
+    return row;
+  }
+
+  histBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (popOpen === histPanel) return closeSearchPop();
+    histFilter = "";
+    renderHistory();
+    openSearchPop(histPanel, histBtn);
+    const f = histPanel.querySelector(".sx-filter");
+    if (f) f.focus();
+  });
+
+  /* close on an outside click, Esc, or a resize (the bar may have moved) */
+  document.addEventListener("mousedown", (e) => {
+    if (!popOpen) return;
+    if (popOpen.contains(e.target) || engineBtn.contains(e.target) || histBtn.contains(e.target)) return;
+    closeSearchPop(true);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (!popOpen) return;
+    if (e.key === "Escape") { e.preventDefault(); closeSearchPop(); return; }
+    /* arrow keys walk the menu / list */
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const items = Array.from(popOpen.querySelectorAll(".sx-item, .sx-more, .sx-row-go"));
+      if (!items.length) return;
+      e.preventDefault();
+      const i = items.indexOf(document.activeElement);
+      const next = e.key === "ArrowDown" ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+      items[next].focus();
+    }
+  });
+  addEventListener("resize", () => closeSearchPop(true));
 
   /* ================= AI CHAT =============================================
      The panel talks to AI_CONFIG.endpoint (server/chat.js). While a reply is
@@ -1251,6 +2283,11 @@
   const aiSend = $("aiSend");
   const aiStatus = $("aiStatus");
   const aiStatusText = $("aiStatusText");
+  const aiMic = $("aiMic");
+  const aiTalk = $("aiTalk");
+  const aiVoiceBtn = $("aiVoice");
+  const aiHint = $("aiHint");
+  const AI_HINT = aiHint.textContent;
   let aiSeeded = false;
   let aiBusy = false;
   let typingRow = null;
@@ -1305,12 +2342,31 @@
     d.className = "msg " + who + (isError ? " is-error" : "");
     if (who === "bot" && !isError) d.innerHTML = formatReply(text);
     else d.textContent = text;
+    /* the page translator leaves the conversation itself alone */
+    if (who === "me" || !isError) d.setAttribute("translate", "no");
     const t = document.createElement("span");
     t.className = "msg-time";
     t.textContent = clockTime();
+    t.setAttribute("translate", "no");
     col.append(d, t);
+    /* any answer can be read out loud */
+    let say = null;
+    if (who === "bot" && !isError && Voice && Voice.canSpeak) {
+      say = document.createElement("button");
+      say.type = "button";
+      say.className = "msg-say";
+      say.title = "Read out loud";
+      say.setAttribute("aria-label", "Read out loud");
+      say.innerHTML = SPEAK_SVG;
+      say.addEventListener("click", () => (speakingBtn === say ? stopSpeaking() : sayReply(text, say)));
+      const meta = document.createElement("span");
+      meta.className = "msg-meta";
+      meta.append(t, say);
+      col.append(meta);
+    }
     aiLog.appendChild(row);
     aiLog.scrollTop = aiLog.scrollHeight;
+    return say;
   }
 
   function setStatus(state) {
@@ -1358,8 +2414,223 @@
     }
   });
 
+  /* ---- voice: speaking answers, voice typing, talk mode ----
+     Settings live in Customize > Language (language.ai.*); the ◖) button
+     in the header has the quick ones. */
+  const SPEAK_SVG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>';
+  let speakingBtn = null;
+  let chatRec = null;
+  let talk = false;
+  let hintTimer = 0;
+
+  /* the line under the box doubles as the voice status */
+  function setHint(text, action, label) {
+    clearTimeout(hintTimer);
+    aiHint.textContent = text || AI_HINT;
+    aiHint.classList.toggle("is-live", !!text);
+    if (action) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.addEventListener("click", action);
+      aiHint.append(" ", b);
+    }
+  }
+  const flashHint = (text, action, label) => {
+    setHint(text, action, label);
+    hintTimer = setTimeout(() => setHint(), 8000);
+  };
+
+  /* the language an answer is spoken in: the one it was asked for, or the
+     one it is written in */
+  async function sayReply(text, btn) {
+    stopSpeaking();
+    const L = AS.get().language;
+    const code = L.ai.reply !== "auto" ? L.ai.reply : (await Voice.detect(text)) || L.lang;
+    speakingBtn = btn || null;
+    if (btn) btn.classList.add("is-on");
+    if (!chatRec) setHint("Speaking…", stopSpeaking, "Stop");
+    const done = await Voice.speak(text, { voiceId: L.ai.voice, custom: L.ai.custom, lang: Voice.speechTag(code) });
+    if (btn) btn.classList.remove("is-on");
+    if (speakingBtn === btn) speakingBtn = null;
+    if (!chatRec) setHint();
+    return done;
+  }
+  function stopSpeaking() {
+    if (Voice) Voice.stop();
+    if (speakingBtn) speakingBtn.classList.remove("is-on");
+    speakingBtn = null;
+    if (!chatRec) setHint();
+  }
+
+  /* voice typing into the box; in talk mode it sends by itself */
+  function listenChat() {
+    if (chatRec || !Voice || !Voice.canListen) return;
+    stopSpeaking();
+    const before = talk ? "" : aiInput.value.trim();
+    const put = (t) => {
+      aiInput.value = before && t ? before + " " + t : before || t;
+      fitInput();
+      syncSend();
+    };
+    aiMic.classList.add("is-live");
+    aiMic.setAttribute("aria-pressed", "true");
+    setHint(talk ? "Talk mode · listening…" : "Listening… click the mic to stop");
+    chatRec = Voice.listen({
+      lang: listenTag(AS.get().language.ai.reply),
+      onText: put,
+      onEnd: (t, err) => {
+        chatRec = null;
+        aiMic.classList.remove("is-live");
+        aiMic.setAttribute("aria-pressed", "false");
+        setHint();
+        if (!t) {
+          if (talk) setTalk(false);
+          if (err && err !== "aborted") micTrouble(err, flashHint);
+          return;
+        }
+        put(t);
+        if (talk) $("aiForm").requestSubmit();
+        else aiInput.focus();
+      },
+    });
+  }
+  aiMic.addEventListener("click", () => (chatRec ? chatRec.stop() : listenChat()));
+
+  /* talk mode: listen → send → speak the answer → listen again */
+  function setTalk(on) {
+    talk = on;
+    aiTalk.classList.toggle("is-on", on);
+    aiTalk.setAttribute("aria-pressed", String(on));
+    $("ai").classList.toggle("is-talking", on);
+    if (on) {
+      if (aiPanel.hidden) openAi();
+      if (!aiBusy) listenChat();
+    } else {
+      if (chatRec) chatRec.abort();
+      stopSpeaking();
+    }
+  }
+  aiTalk.addEventListener("click", () => setTalk(!talk));
+
+  /* after an answer: read it out if asked to, then carry on talking */
+  function afterReply(reply, sayBtn) {
+    const ai = AS.get().language.ai;
+    if ((talk || ai.speak) && Voice && Voice.canSpeak) {
+      sayReply(reply, sayBtn).then((finished) => { if (talk && finished) listenChat(); });
+    } else if (talk) listenChat();
+  }
+
+  /* the chosen answer language rides along with the question */
+  function withReplyLang(msgs) {
+    const code = AS.get().language.ai.reply;
+    const L = code !== "auto" && window.AtlasLangs && AtlasLangs.find(code);
+    if (!L || !msgs.length) return msgs;
+    const out = msgs.slice();
+    const last = out[out.length - 1];
+    out[out.length - 1] = { role: last.role, content: last.content + "\n\n(Answer in " + L.name + ".)" };
+    return out;
+  }
+
+  /* the quick voice menu under the header */
+  const vmenu = document.createElement("div");
+  vmenu.className = "ai-vmenu";
+  vmenu.hidden = true;
+  vmenu.setAttribute("role", "dialog");
+  vmenu.setAttribute("aria-label", "Voice and language");
+  aiPanel.append(vmenu);
+
+  function buildVoiceMenu() {
+    const L = AS.get().language;
+    const langs = window.AtlasLangs ? AtlasLangs.list : [];
+    vmenu.textContent = "";
+    const field = (label, control) => {
+      const row = document.createElement("label");
+      row.className = "ai-vrow";
+      const span = document.createElement("span");
+      span.textContent = label;
+      row.append(span, control);
+      vmenu.append(row);
+      return control;
+    };
+    const select = (options, value, onChange, langNames) => {
+      const sel = document.createElement("select");
+      options.forEach(([v, text, groupLabel]) => {
+        const o = new Option(text, v);
+        sel.append(o);
+        if (groupLabel) o.dataset.group = groupLabel;
+      });
+      sel.value = value;
+      sel.addEventListener("change", () => onChange(sel.value));
+      /* language names stay in their own words */
+      if (langNames) [...sel.options].slice(1).forEach((o) => o.setAttribute("translate", "no"));
+      return sel;
+    };
+    const langOpts = (first) => [first].concat(langs.map((l) => [l.code, AtlasLangs.label(l)]));
+
+    if (Voice && Voice.canSpeak) {
+      const sw = document.createElement("input");
+      sw.type = "checkbox";
+      sw.className = "cz-switch";
+      sw.checked = L.ai.speak;
+      sw.addEventListener("change", () => {
+        AS.set("language.ai.speak", sw.checked);
+        if (!sw.checked) stopSpeaking();
+      });
+      field("Read answers out loud", sw);
+      const voices = Voice.PRESETS.map((p) => [p.id, p.name + " — " + p.hint])
+        .concat(L.ai.custom.map((c) => [c.id, c.name + " — custom"]));
+      field("Voice", select(voices, L.ai.voice, (v) => {
+        AS.set("language.ai.voice", v);
+        sayReply(AI_CONFIG.greeting);
+      }));
+    }
+    field("Answers in", select(langOpts(["auto", "The language I use"]), L.ai.reply, (v) => AS.set("language.ai.reply", v), true));
+    if (Voice && Voice.canListen) {
+      field("Listen for", select(langOpts(["auto", "Automatic"]), L.voiceLang, (v) => AS.set("language.voiceLang", v), true));
+    }
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "ai-vmore";
+    more.textContent = "Custom voices & translation…";
+    more.addEventListener("click", () => { closeVoiceMenu(); AS.open("language"); });
+    vmenu.append(more);
+  }
+  function closeVoiceMenu() {
+    vmenu.hidden = true;
+    aiVoiceBtn.setAttribute("aria-expanded", "false");
+    aiVoiceBtn.classList.remove("is-open");
+  }
+  aiVoiceBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!vmenu.hidden) return closeVoiceMenu();
+    buildVoiceMenu();
+    vmenu.hidden = false;
+    aiVoiceBtn.setAttribute("aria-expanded", "true");
+    aiVoiceBtn.classList.add("is-open");
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!vmenu.hidden && !vmenu.contains(e.target) && !aiVoiceBtn.contains(e.target)) closeVoiceMenu();
+  });
+  vmenu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.stopPropagation(); closeVoiceMenu(); aiVoiceBtn.focus(); }
+  });
+
+  function syncVoiceUi() {
+    const L = AS.get().language;
+    const listen = !!(Voice && Voice.canListen);
+    aiMic.hidden = !listen || !L.ai.mic;
+    aiTalk.hidden = !listen || !(Voice && Voice.canSpeak);
+    aiVoiceBtn.hidden = !Voice;
+    if (aiMic.hidden && chatRec && !talk) chatRec.abort();
+    syncSearchMic();
+  }
+
   function greet() {
     addMsg(AI_CONFIG.endpoint ? AI_CONFIG.greeting : AI_CONFIG.notConfigured, "bot");
+    /* ...except the greeting, which reads in the page's language */
+    const g = aiLog.lastElementChild && aiLog.lastElementChild.querySelector(".msg");
+    if (g) g.removeAttribute("translate");
   }
 
   function openAi() {
@@ -1372,10 +2643,16 @@
     syncSend();
     aiInput.focus();
   }
-  $("aiToggle").addEventListener("click", () => (aiPanel.hidden ? openAi() : (aiPanel.hidden = true)));
-  $("aiClose").addEventListener("click", () => (aiPanel.hidden = true));
+  function closeAi() {
+    aiPanel.hidden = true;
+    closeVoiceMenu();
+    setTalk(false);
+  }
+  $("aiToggle").addEventListener("click", () => (aiPanel.hidden ? openAi() : closeAi()));
+  $("aiClose").addEventListener("click", closeAi);
   $("aiClear").addEventListener("click", () => {
     if (aiBusy) return;
+    stopSpeaking();
     history.length = 0;
     aiLog.textContent = "";
     greet();
@@ -1386,6 +2663,8 @@
     e.preventDefault();
     const text = aiInput.value.trim();
     if (!text || aiBusy) return;
+    stopSpeaking();
+    if (chatRec) chatRec.abort();
     addMsg(text, "me");
     history.push({ role: "user", content: text });
     aiInput.value = "";
@@ -1393,6 +2672,7 @@
     if (!AI_CONFIG.endpoint) {
       addMsg(AI_CONFIG.notConfigured, "bot", true);
       syncSend();
+      if (talk) setTalk(false);
       return;
     }
     setBusy(true);
@@ -1400,7 +2680,7 @@
       const res = await fetch(AI_CONFIG.endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({ messages: withReplyLang(history) }),
       });
       const data = await res.json().catch(() => ({}));
       setBusy(false);
@@ -1408,13 +2688,15 @@
         /* the failed question leaves the history, so it can simply be asked again */
         history.pop();
         addMsg("Assistant error: " + (data.error || "the server answered " + res.status), "bot", true);
+        if (talk) setTalk(false);
         return;
       }
       history.push({ role: "assistant", content: data.reply });
-      addMsg(data.reply, "bot");
+      afterReply(data.reply, addMsg(data.reply, "bot"));
     } catch (err) {
       setBusy(false);
       setStatus("off");
+      if (talk) setTalk(false);
       history.pop();
       addMsg("Couldn't reach the assistant server. Check your connection and AI_CONFIG.endpoint in config.js.", "bot", true);
     }
@@ -1522,7 +2804,7 @@
         },
         run: (cmd) => {
           const term = (cmd && cmd.term) || "";
-          if (term) window.location.href = searchUrl(term);
+          if (term) runSearch(term);
           else $("q").focus();
         },
       },
@@ -1536,6 +2818,185 @@
         run: () => openAi(),
       },
       {
+        id: "sys:zen",
+        title: "Zen Clock",
+        description: "A full-screen clock, with other places' time",
+        category: "Atlas",
+        keywords: ["zen", "clock", "time", "focus", "fullscreen", "world", "timezone", "date"],
+        mark: "◷",
+        run: () => window.AtlasZen && AtlasZen.open(),
+      },
+      {
+        id: "sys:tools",
+        title: "Quick Tools",
+        description: "Notes, optimize, blocker, zen clock, minimal, quote",
+        category: "Atlas",
+        keywords: ["quick", "tools", "toolbox", "utilities"],
+        mark: "⊞",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("home"),
+      },
+      {
+        id: "sys:quote",
+        title: "New Quote",
+        description: "Another quote for today",
+        category: "Atlas",
+        keywords: ["quote", "quotes", "inspiration", "motivation", "daily", "saying"],
+        mark: "❝",
+        run: () => window.AtlasQuote && AtlasQuote.next(),
+      },
+      {
+        id: "sys:quotes",
+        title: "Daily Quote Settings",
+        description: "Categories, how often it changes, your own quotes",
+        category: "Atlas",
+        keywords: ["quote", "quotes", "daily", "my quotes", "add quote"],
+        mark: "❝",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("quote"),
+      },
+      {
+        id: "sys:tasks",
+        title: "Notes & Goals",
+        description: "Notes, goals with progress, tasks with reminders",
+        category: "Atlas",
+        keywords: ["notes", "note", "goals", "goal", "tasks", "task", "todo", "to do", "progress", "checklist"],
+        mark: "✓",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.openTasks(),
+      },
+      {
+        id: "sys:optimize",
+        title: "Optimize Tabs",
+        description: "Close duplicates, sleep tabs, auto optimize",
+        category: "Tabs",
+        keywords: ["optimize", "tabs", "memory", "sleep", "duplicate", "close", "clean", "speed", "performance"],
+        mark: "⚡",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.openOptimize(),
+      },
+      {
+        id: "sys:dedupe",
+        title: "Close Duplicate Tabs",
+        description: "Keep one tab per page",
+        category: "Tabs",
+        keywords: ["duplicate", "duplicates", "close", "tabs", "same"],
+        mark: "⧉",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.closeDuplicates(),
+      },
+      {
+        id: "sys:sleep",
+        title: "Sleep Inactive Tabs",
+        description: "Free memory; they reload when you open them",
+        category: "Tabs",
+        keywords: ["sleep", "discard", "suspend", "memory", "tabs", "ram"],
+        mark: "☾",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.sleepTabs(),
+      },
+      {
+        id: "sys:minimal",
+        title: "Minimal Mode",
+        description: "Hide everything but what you keep — on, off, or at set times",
+        category: "Atlas",
+        keywords: ["minimal", "minimalist", "clean", "quiet", "hide", "focus", "simple", "declutter"],
+        mark: "▢",
+        /* the title says which way it goes */
+        dynamic: () => (window.AtlasMinimal && AtlasMinimal.isOn() ? { title: "Exit Minimal Mode" } : null),
+        run: () => window.AtlasMinimal && AtlasMinimal.toggle(),
+      },
+      {
+        id: "sys:minimalset",
+        title: "Minimal Mode Settings",
+        description: "What stays on screen, and when it turns on by itself",
+        category: "Atlas",
+        keywords: ["minimal", "schedule", "auto", "time", "settings"],
+        mark: "▢",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("minimal"),
+      },
+      {
+        id: "sys:focus",
+        title: "Start Focus",
+        description: "A 25-minute focus session that blocks distracting sites",
+        category: "Focus",
+        keywords: ["focus", "pomodoro", "timer", "work", "concentrate", "deep work", "study", "break"],
+        mark: "◷",
+        /* the title says what the button would do right now */
+        dynamic: () => {
+          const F = window.AtlasFocus;
+          if (!F || !F.isRunning()) return null;
+          return { title: F.state().paused ? "Resume Focus" : "Pause Focus" };
+        },
+        run: () => window.AtlasFocus && AtlasFocus.toggle(),
+      },
+      {
+        id: "sys:focusview",
+        title: "Focus Timer",
+        description: "Timer, settings and your focus history",
+        category: "Focus",
+        keywords: ["focus", "pomodoro", "timer", "history", "sessions", "settings"],
+        mark: "◷",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("focus"),
+      },
+      {
+        id: "sys:stats",
+        title: "Stats",
+        description: "Time on each site, focus, tasks and habits — today, this week, this month",
+        category: "Focus",
+        keywords: ["stats", "statistics", "dashboard", "time", "screen time", "productivity", "report", "analytics", "weekly"],
+        mark: "▥",
+        run: () => window.AtlasStats && AtlasStats.open(),
+      },
+      {
+        id: "sys:habits",
+        title: "Habits",
+        description: "Tick off today's habits and keep your streaks going",
+        category: "Focus",
+        keywords: ["habit", "habits", "streak", "daily", "routine", "tracker", "check"],
+        mark: "✓",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.openHabits(),
+      },
+      {
+        id: "sys:blocker",
+        title: "Block Sites",
+        description: "Keep distracting sites closed, always or at set times",
+        category: "Atlas",
+        keywords: ["block", "blocker", "focus", "distraction", "site", "website", "social"],
+        mark: "⊘",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("blocker"),
+      },
+      {
+        id: "sys:account",
+        title: "Account",
+        description: "Google sign-in, sync, plan and sign out",
+        category: "Atlas",
+        keywords: ["account", "google", "sign in", "login", "sign out", "logout", "profile", "sync", "pro", "upgrade"],
+        mark: "◉",
+        run: () => AS.open("account"),
+      },
+      {
+        id: "sys:talk",
+        title: "Talk to Atlas",
+        description: "Speak your question, hear the answer",
+        category: "Atlas",
+        keywords: ["talk", "voice", "speak", "conversation", "mic", "microphone", "listen"],
+        mark: "◖",
+        run: () => setTalk(true),
+      },
+      {
+        id: "sys:voicesearch",
+        title: "Search by Voice",
+        description: "Say what to search for",
+        category: "Atlas",
+        keywords: ["voice", "search", "mic", "microphone", "speak", "dictate"],
+        mark: "◉",
+        run: () => searchByVoice(),
+      },
+      {
+        id: "sys:language",
+        title: "Language & Translation",
+        description: "Translate websites, voice typing, the assistant's voice",
+        category: "Atlas",
+        keywords: ["language", "translate", "translation", "urdu", "hindi", "arabic", "voice", "speech"],
+        mark: "文",
+        run: () => AS.open("language"),
+      },
+      {
         id: "sys:customize",
         title: "Customize",
         description: "Colours, background, lighting and widgets",
@@ -1543,6 +3004,33 @@
         keywords: ["customize", "customise", "theme", "color", "colour", "appearance", "settings", "style", "layout", "hide", "show", "move"],
         mark: "◐",
         run: () => AS.open(),
+      },
+      {
+        id: "sys:reminder",
+        title: "New Reminder",
+        description: "An alarm at a time, date, weekday or every year",
+        category: "Atlas",
+        keywords: ["reminder", "remind", "alarm", "notification", "birthday", "schedule", "alert", "timer"],
+        mark: "⏰",
+        run: () => window.AtlasReminders && AtlasReminders.open(true),
+      },
+      {
+        id: "sys:reminders",
+        title: "Reminders",
+        description: "See and edit your reminders and alarm sound",
+        category: "Atlas",
+        keywords: ["reminders", "alarms", "notifications", "birthdays", "sound"],
+        mark: "◔",
+        run: () => window.AtlasReminders && AtlasReminders.open(),
+      },
+      {
+        id: "sys:wpschedule",
+        title: "Schedule Wallpapers",
+        description: "Change the wallpaper by itself at set times",
+        category: "Wallpaper",
+        keywords: ["wallpaper", "schedule", "timer", "time", "auto", "change", "background"],
+        mark: "◑",
+        run: () => AS.open("background"),
       },
       {
         id: "sys:background",
@@ -1556,12 +3044,47 @@
     ];
   }
 
+  /* the private space. While it is locked these stay out of the default
+     list (`quiet`) — typing "private" finds them — unless the lock button
+     is on the dock anyway */
+  function createVaultCommands() {
+    if (!V || !V.supported) return [];
+    const keywords = ["private", "privacy", "vault", "lock", "unlock", "password", "hidden", "secret", "notes"];
+    const base = { category: "Private space", keywords, mark: "◉" };
+    if (!V.exists()) {
+      return [Object.assign({}, base, {
+        id: "vault:setup", title: "Set Up Private Space", quiet: true,
+        description: "A password-locked workspace for shortcuts and notes",
+        run: () => AS.open("privacy"),
+      })];
+    }
+    if (!V.isUnlocked()) {
+      return [Object.assign({}, base, {
+        id: "vault:unlock", title: "Unlock Private Space", quiet: !AS.get().privacy.dock,
+        description: "Enter your password", run: promptUnlock,
+      })];
+    }
+    return [
+      Object.assign({}, base, {
+        id: "vault:folder", title: "Open Private Folder", description: "Your hidden shortcuts and notes, on a screen of their own",
+        keywords: keywords.concat(["folder"]), run: () => openPrivateFolder("apps"),
+      }),
+      Object.assign({}, base, { id: "vault:open", title: "Private Space on the Dock", description: "Your private sections and shortcuts", run: openVault }),
+      Object.assign({}, base, {
+        id: "vault:notes", title: "Private Notes", description: "Open the private folder's notes",
+        run: () => openPrivateFolder("notes"),
+      }),
+      Object.assign({}, base, { id: "vault:lock", title: "Lock Private Space", description: "Hide it again until the password is entered", mark: "○", run: () => V.lock() }),
+    ];
+  }
+
   function createCommands() {
     return [].concat(
       createShortcutCommands(),
       createWorkspaceCommands(),
       createWallpaperCommands(),
-      createSystemCommands()
+      createSystemCommands(),
+      createVaultCommands()
     );
   }
 
@@ -1651,7 +3174,7 @@
     return [].concat(
       used,
       fillers,
-      ccCommands.filter((c) => c.category !== "Shortcuts" && !c.fallback)
+      ccCommands.filter((c) => c.category !== "Shortcuts" && !c.fallback && !c.quiet)
     );
   }
 
@@ -2198,18 +3721,34 @@
      the app to act. "*" means many changed at once (preset, reset, import). */
   AS.on((s, path) => {
     const all = path === "*";
+    /* choosing a colour / image / gradient by hand also holds off the schedule */
+    if (path === "background.mode" && !wpScheduling) markManual();
+    if (path.startsWith("background.schedule")) {
+      /* an edited schedule takes charge from its next time: the wallpaper
+         on screen now stays until then (a rule's last time — yesterday at
+         18:00, say — would otherwise switch it the moment it's saved) */
+      markManual();
+    }
+    if (all || path.startsWith("background.schedule")) applyWallpaperSchedule(false);
     if (all || path.startsWith("background.")) applyBackground();
     if (all || path.startsWith("widgets.clock.")) {
       renderClock();
       requestAnimationFrame(syncClockHeight); // after the new CSS lands
     }
     if (all || path.startsWith("widgets.search.")) syncSearchLabel();
+    if (all || path.startsWith("language.")) syncVoiceUi();
+    if (all || path.startsWith("privacy.")) {
+      if (activeWs) renderRail(); // the lock button
+      if (V && (all || path === "privacy.stay")) V.setStay(s.privacy.stay);
+    }
   });
 
   /* ================= BOOT ================================================ */
   Promise.all([
-    store.get(["wallpaper", "workspace", "usage", "launcherTabs", LAYOUT_KEY]),
+    store.get(["wallpaper", "workspace", "usage", "launcherTabs", HISTORY_KEY, WP_MANUAL_KEY, LAYOUT_KEY]),
     AS.ready,
+    V ? V.ready : null,
+    window.AtlasPremium ? AtlasPremium.ready : null,
   ]).then(([s]) => {
     /* the saved layout replaces the config.js defaults; a first launch, or
        anything unreadable, falls back to them */
@@ -2218,13 +3757,26 @@
     if (s.workspace && WORKSPACES.some((w) => w.id === s.workspace)) activeWs = s.workspace;
     try { usage = s.usage ? JSON.parse(s.usage) : {}; } catch { usage = {}; }
     try { tabs = s.launcherTabs ? JSON.parse(s.launcherTabs) || {} : {}; } catch { tabs = {}; }
+    loadHistory(s[HISTORY_KEY]);
     renderRail();
     renderLauncher();
     renderClock();
     syncSearchLabel();
+    syncVoiceUi();
     syncClockHeight();
     currentWp = (WALLPAPERS.find((w) => w.id === s.wallpaper) || WALLPAPERS[0] || {}).id || null;
+    wpManualAt = Number(s[WP_MANUAL_KEY]) || 0;
+    /* a scheduled wallpaper is the one the page opens with — no crossfade */
+    const due = scheduledWallpaper(Date.now());
+    if (due && AS.get().background.mode === "video") {
+      currentWp = due.id;
+      store.set({ wallpaper: due.id });
+    }
     applyBackground(true);
+    applyWallpaperSchedule(true); // a scheduled change away from a colour / image
+    if (window.AtlasPremium) AtlasPremium.start();
     $("q").focus();
+    /* back in, if the user chose to stay unlocked for the session */
+    if (V) V.restore(AS.get().privacy.stay);
   });
 })();

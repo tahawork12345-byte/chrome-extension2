@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atlas Pro — Checkout</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 16px/1.5 system-ui, sans-serif; background: #0e0f12; color: #e9e9ec; }
+    main { text-align: center; padding: 24px; max-width: 420px; }
+    .muted { color: #9a9aa3; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Atlas Pro</h1>
+    <p id="status" class="muted">Loading secure checkout…</p>
+  </main>
+
+  <!-- Paddle's "default payment link" must point to this page.
+       Paddle adds ?_ptxn=txn_... and Paddle.js opens that checkout automatically. -->
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+  <script>
+    const status = document.getElementById("status");
+    fetch("/billing/config")
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (!cfg.clientToken) throw new Error("no client token");
+        if (cfg.environment === "sandbox") Paddle.Environment.set("sandbox");
+        Paddle.Initialize({
+          token: cfg.clientToken,
+          eventCallback(e) {
+            if (e.name === "checkout.completed") {
+              status.textContent = "Payment complete! Pro unlocks in a few seconds — you can close this tab.";
+            } else if (e.name === "checkout.closed") {
+              status.textContent = "Checkout closed. You can close this tab.";
+            }
+          },
+        });
+        if (!new URLSearchParams(location.search).get("_ptxn")) {
+          status.textContent = "Start checkout from the Atlas extension.";
+        } else {
+          status.textContent = "";
+        }
+      })
+      .catch(() => (status.textContent = "Checkout is unavailable right now. Please try again later."));
+  </script>
+</body>
+</html>

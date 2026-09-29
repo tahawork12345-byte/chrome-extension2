@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Atlas New Tab",
-  "version": "1.0.0",
+  "name": "Atlas New Tab - Taha",
+  "version": "1.0.1",
   "description": "A calm, editorial new tab with cinematic live wallpapers, shortcut cards, search and a compact assistant.",
-  "permissions": ["storage", "scripting"],
+  "permissions": ["storage", "scripting", "alarms", "notifications", "offscreen", "identity", "declarativeNetRequestWithHostAccess", "idle"],
+  "optional_permissions": ["management"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "chrome_url_overrides": {
     "newtab": "index.html"
@@ -24,6 +25,23 @@
       "js": ["media-relay.js"],
       "run_at": "document_start",
       "all_frames": true
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["cursors.js", "cursor-apply.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["languages.js", "translate.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html"],
+      "matches": ["http://*/*", "https://*/*"]
     }
   ],
   "icons": {
