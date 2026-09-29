@@ -51,6 +51,9 @@
          wallpaper, enabled }] (rules as in schedule.js); app.js applies them */
       scheduleOn: true,
       schedule: [],
+      /* Atlas Pro: switch the live wallpaper by itself, by "time" of day
+         or by the "weather" (premium.js), or "off" */
+      auto: "off",
     },
     lighting: {
       trace: true,
@@ -90,6 +93,63 @@
         custom: [],      // your voices: { id, name, voice (system voice, "" = auto), rate, pitch, volume }
       },
     },
+    /* the site blocker (background.js applies it). sites: bare domains;
+       days: 0 = Sunday … 6 = Saturday */
+    blocker: {
+      on: false,
+      sites: [],
+      schedule: false,
+      days: [1, 2, 3, 4, 5],
+      from: "09:00",
+      to: "17:00",
+      breaks: true,   // "Take a 5-minute break" on the blocked page
+      message: "",
+    },
+    /* the focus timer (focus.js; background.js keeps the clock). Minutes
+       per phase; a long break after every `every` focus sessions */
+    focus: {
+      work: 25,
+      short: 5,
+      long: 15,
+      every: 4,
+      block: true,      // block the site blocker's list while focusing
+      dim: true,        // dim the wallpaper while focusing
+      sound: "chime",   // a sounds.js id, "custom" or "none"
+      autoBreak: true,  // a break starts by itself when focus ends
+      autoNext: false,  // focus starts by itself when a break ends
+      notify: true,     // a system notification when a phase ends
+      pill: true,       // the timer pill at the top of the new tab
+    },
+    /* your own quotes for the daily quote: { id, text, author } */
+    quotes: { custom: [] },
+    /* auto optimize (quick tools > Optimize; background.js runs it) */
+    optimize: {
+      auto: false,
+      sleep: true,     // sleep tabs unused for `sleepAfter` minutes
+      sleepAfter: 30,
+      dedupe: false,   // close a tab that opens a page already open
+    },
+    /* minimal mode (minimal.js): only the widgets in `keep` stay. mode:
+       "off", "on", or "auto" = during the times in `rules`
+       ({ id, days (0 = Sunday), from, to }) */
+    minimal: {
+      mode: "off",
+      rules: [],
+      keep: { clock: true, weather: false, search: true, dock: false, media: false, wallpaper: false, peek: false, ai: false, quote: false },
+      dim: 0,          // extra darkening of the background, %
+      exit: true,      // the small "Minimal · Exit" button
+    },
+    /* the full-screen Zen clock (zen.js) and its own menu */
+    zen: {
+      day: true,
+      date: true,
+      year: true,
+      seconds: false,
+      widgets: false,     // keep the page's widgets over it
+      background: true,   // the wallpaper behind it, or a plain colour
+      color: "#0b0b10",
+      places: [],         // other places: { id, label, tz }
+    },
     /* cursors.js owns this shape: a library of uploads + a look per cursor */
     cursor: window.AtlasCursors ? AtlasCursors.defaults() : { style: "default" },
     widgets: {
@@ -123,6 +183,9 @@
         light: true,
         time: true,
       }),
+      /* the daily quote (quote.js). source: builtin | mine | both;
+         cat: a quote.js category or "all"; every: day | tab */
+      quote: widget({ source: "both", cat: "all", every: "day" }),
     },
   };
 
@@ -201,9 +264,10 @@
     clock: { sel: ".clock", label: "Clock", origin: "top left" },
     search: { sel: ".search", label: "Search bar", origin: "left bottom", w: true, h: true },
     media: { sel: ".media", label: "Now playing", origin: "bottom left", w: true },
-    wallpaper: { sel: ".wp-control", label: "Wallpaper button", origin: "bottom left" },
+    wallpaper: { sel: ".wp-control", label: "Zen & minimal buttons", origin: "bottom left" },
     peek: { sel: ".peek", label: "Quick Peek", origin: "top right" },
     ai: { sel: ".ai", label: "Assistant", origin: "bottom right" },
+    quote: { sel: ".quote", label: "Daily quote", origin: "center bottom", w: true },
   };
   const POSITIONS = ["tl", "tc", "tr", "ml", "mc", "mr", "bl", "bc", "br"];
 
@@ -237,7 +301,82 @@
     const knownVoice = (id) => ai.custom.some((c) => c.id === id) ||
       (window.AtlasVoice ? AtlasVoice.PRESETS.some((p) => p.id === id) : id === "atlas");
     if (!knownVoice(ai.voice)) ai.voice = "atlas";
+    const bl = over && over.blocker;
+    next.blocker.sites = normalizeSites(bl && bl.sites);
+    next.blocker.days = bl && Array.isArray(bl.days)
+      ? [...new Set(bl.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort()
+      : clone(DEFAULTS.blocker.days);
+    if (!/^\d{2}:\d{2}$/.test(next.blocker.from)) next.blocker.from = DEFAULTS.blocker.from;
+    if (!/^\d{2}:\d{2}$/.test(next.blocker.to)) next.blocker.to = DEFAULTS.blocker.to;
+    next.blocker.message = next.blocker.message.slice(0, 200);
+    next.zen.places = normalizePlaces(over && over.zen && over.zen.places);
+    if (!["off", "on", "auto"].includes(next.minimal.mode)) next.minimal.mode = "off";
+    next.minimal.rules = normalizeMinRules(over && over.minimal && over.minimal.rules);
+    next.quotes.custom = normalizeQuotes(over && over.quotes && over.quotes.custom);
+    if (!["builtin", "mine", "both"].includes(next.widgets.quote.source)) next.widgets.quote.source = "both";
+    if (!["day", "tab"].includes(next.widgets.quote.every)) next.widgets.quote.every = "day";
+    if (!["off", "time", "weather"].includes(next.background.auto)) next.background.auto = "off";
+    const f = next.focus;
+    [["work", 1, 180], ["short", 1, 60], ["long", 1, 90], ["every", 1, 12]].forEach(([k, min, max]) => {
+      f[k] = Math.round(num(f[k], min, max, DEFAULTS.focus[k]));
+    });
     return next;
+  }
+
+  /* your own quotes: a list, so checked here rather than by merge() */
+  const MAX_QUOTES = 200;
+  function normalizeQuotes(list) {
+    return (Array.isArray(list) ? list : []).slice(0, MAX_QUOTES).map((q, i) => {
+      if (!q || typeof q.text !== "string" || !q.text.trim()) return null;
+      return {
+        id: typeof q.id === "string" && /^q-[\w-]+$/.test(q.id) ? q.id : "q-" + Date.now().toString(36) + i,
+        text: q.text.trim().slice(0, 400),
+        author: String(q.author || "").trim().slice(0, 80),
+      };
+    }).filter(Boolean);
+  }
+
+  /* minimal mode's times: a list, so checked here rather than by merge() */
+  const MAX_MIN_RULES = 8;
+  const HHMM = /^\d{2}:\d{2}$/;
+  function normalizeMinRules(list) {
+    return (Array.isArray(list) ? list : []).slice(0, MAX_MIN_RULES).map((r, i) => {
+      if (!r || !HHMM.test(r.from) || !HHMM.test(r.to)) return null;
+      const days = Array.isArray(r.days) ? [...new Set(r.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort() : [];
+      return {
+        id: typeof r.id === "string" && r.id ? r.id : "mr-" + Date.now().toString(36) + i,
+        days, from: r.from, to: r.to,
+      };
+    }).filter(Boolean);
+  }
+
+  /* blocked sites: bare domains ("https://www.youtube.com/x" -> "youtube.com") */
+  const MAX_SITES = 300;
+  function cleanSite(v) {
+    let t = String(v || "").trim().toLowerCase();
+    if (!t) return "";
+    try { t = new URL(/^[a-z]+:\/\//.test(t) ? t : "http://" + t).hostname; } catch { return ""; }
+    t = t.replace(/^www\./, "").replace(/\.$/, "");
+    return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(t) ? t : "";
+  }
+  function normalizeSites(list) {
+    return [...new Set((Array.isArray(list) ? list : []).map(cleanSite).filter(Boolean))].slice(0, MAX_SITES);
+  }
+
+  /* Zen clock places: a list, so checked here rather than by merge() */
+  const MAX_PLACES = 8;
+  const validTz = (tz) => {
+    try { new Intl.DateTimeFormat("en", { timeZone: tz }); return true; } catch { return false; }
+  };
+  function normalizePlaces(list) {
+    return (Array.isArray(list) ? list : []).slice(0, MAX_PLACES).map((p, i) => {
+      if (!p || typeof p.tz !== "string" || !validTz(p.tz)) return null;
+      return {
+        id: typeof p.id === "string" && p.id ? p.id : "pl-" + Date.now().toString(36) + i,
+        label: String(p.label || "").trim().slice(0, 32) || p.tz.split("/").pop().replace(/_/g, " "),
+        tz: p.tz,
+      };
+    }).filter(Boolean);
   }
 
   /* custom voices: a list, so checked here rather than by merge() */
@@ -862,6 +1001,7 @@
             colorRow("From", "background.gradA", { when: isMode("gradient") }),
             colorRow("To", "background.gradB", { when: isMode("gradient") }),
             rangeRow("Angle", "background.gradAngle", 0, 360, 5, "°", { when: isMode("gradient") })),
+          premiumGroup(),
           wpScheduleGroup(),
           group("Adjust",
             rangeRow("Brightness", "background.brightness", 20, 180, 1, "%"),
@@ -999,10 +1139,13 @@
             })),
           ...placement("widgets.search")),
         card("media", "Now playing", "widgets.media.show", ...placement("widgets.media")),
-        card("wallpaper", "Wallpaper button", "widgets.wallpaper.show", ...placement("widgets.wallpaper")),
+        card("wallpaper", "Zen clock & minimal buttons", "widgets.wallpaper.show", ...placement("widgets.wallpaper")),
         card("peek", "Quick Peek", "widgets.peek.show", ...placement("widgets.peek")),
-        card("ai", "Assistant", "widgets.ai.show",
-          note("Open the ✦ chat to see these changes as you make them."),
+        card("quote", "Daily quote", "widgets.quote.show",
+          note("Pick quotes, how often they change, and add your own in Quick tools → Daily quote."),
+          ...placement("widgets.quote")),
+        card("ai", "Quick tools & assistant", "widgets.ai.show",
+          note("The bottom-right corner: Quick tools and the ✦ chat. Open the chat to see these changes as you make them."),
           rangeRow("Box width", "widgets.ai.panelWidth", 280, 640, 10, "px"),
           rangeRow("Box height", "widgets.ai.panelHeight", 300, 800, 10, "px"),
           rangeRow("Text size", "widgets.ai.fontSize", 11, 18, 0.5, "px"),
@@ -1024,6 +1167,11 @@
       id: "privacy",
       label: "Privacy",
       render: () => privacyTab(),
+    },
+    {
+      id: "account",
+      label: "Account",
+      render: () => accountTab(),
     },
     {
       id: "backup",
@@ -1257,6 +1405,211 @@
     } else box.append(note("That's the most custom voices there's room for."));
     if (!Voice || !Voice.canSpeak) box.append(note("This browser has no text-to-speech voices."));
     return box;
+  }
+
+  /* ---- account: Google sign-in through the backend (account.js) ---- */
+  const Acc = window.AtlasAccount;
+  const GOOGLE_G = '<svg viewBox="0 0 48 48" width="16" height="16" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
+
+  /* a button that shows it is working, and puts any error in `msg` */
+  async function accBusy(btn, text, msg, work) {
+    const was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = text;
+    if (msg) msg.hidden = true;
+    try {
+      return await work();
+    } catch (err) {
+      if (msg) {
+        msg.textContent = err && err.message ? err.message : String(err);
+        msg.classList.add("is-error");
+        msg.hidden = false;
+      }
+    } finally {
+      if (btn.isConnected) { btn.disabled = false; btn.textContent = was; }
+    }
+  }
+  const accMsg = () => h("p", { class: "cz-msg", hidden: true });
+  const say = (msg, text) => { msg.textContent = text; msg.classList.remove("is-error"); msg.hidden = false; };
+
+  function accountTab() {
+    if (!Acc || !Acc.configured()) {
+      const redirect = hasChrome && chrome.identity ? chrome.identity.getRedirectURL() : "";
+      return [group("Google account",
+        note("Sign-in isn't set up yet. Put the backend URL and a Google “Web application” client ID in ACCOUNT_CONFIG (config.js), and the same client ID in the backend's GOOGLE_CLIENT_IDS."),
+        redirect ? note("In Google Cloud Console, add this under “Authorized redirect URIs”:") : null,
+        redirect ? h("input", { class: "cz-text", type: "text", readonly: true, value: redirect, "aria-label": "Redirect URI", translate: "no", onfocus: (e) => e.target.select() }) : null,
+        !hasChrome || !chrome.identity ? note("The “identity” permission is missing from manifest.json.") : null)];
+    }
+
+    const user = Acc.user();
+    if (!user) {
+      const msg = accMsg();
+      const btn = h("button", {
+        type: "button", class: "cz-btn cz-google",
+        onclick: () => accBusy(btn, "Signing in…", msg, () => Acc.signIn()),
+      });
+      btn.innerHTML = GOOGLE_G;
+      btn.append(" Sign in with Google");
+      return [group("Google account",
+        note("Sign in to keep your settings and shortcuts in your account, bring them to another computer, and manage Atlas Pro."),
+        h("div", { class: "cz-btns" }, btn),
+        msg)];
+    }
+
+    /* signed in: the profile first, then what the account can do */
+    const avatar = user.avatarUrl
+      ? h("img", { class: "cz-acc-av", src: user.avatarUrl, alt: "", referrerpolicy: "no-referrer" })
+      : h("span", { class: "cz-acc-av", "aria-hidden": "true", text: (user.name || user.email || "?")[0].toUpperCase() });
+    const planBadge = h("span", { class: "cz-acc-plan" + (user.plan === "PRO" ? " is-pro" : ""), text: user.plan === "PRO" ? "Pro" : "Free" });
+    const profile = h("div", { class: "cz-acc-card", translate: "no" },
+      avatar,
+      h("div", { class: "cz-acc-who" },
+        h("span", { class: "cz-acc-name", text: user.name || user.email }),
+        h("span", { class: "cz-acc-mail", text: user.email })),
+      planBadge);
+
+    const gMsg = accMsg();
+    const signOut = h("button", {
+      type: "button", class: "cz-btn is-danger", text: "Sign out",
+      onclick: () => accBusy(signOut, "Signing out…", gMsg, () => Acc.signOut()),
+    });
+    const switchBtn = h("button", {
+      type: "button", class: "cz-btn", text: "Switch account",
+      onclick: () => accBusy(switchBtn, "Opening Google…", gMsg, async () => {
+        const before = Acc.user();
+        try { await Acc.signIn(); } catch (err) {
+          /* cancelled: stay signed in as before */
+          if (before) return say(gMsg, "Still signed in as " + before.email + ".");
+          throw err;
+        }
+      }),
+    });
+
+    const syncMsg = accMsg();
+    const lastSync = h("p", { class: "cz-note" });
+    const paintSync = () => Acc.lastSync().then((t) => {
+      lastSync.textContent = t ? "Last synced " + new Date(t).toLocaleString() + "." : "Not synced from this computer yet.";
+    });
+    paintSync();
+    const saveBtn = h("button", {
+      type: "button", class: "cz-btn is-primary", text: "Save to account",
+      onclick: () => accBusy(saveBtn, "Saving…", syncMsg, async () => {
+        await Acc.saveToAccount();
+        say(syncMsg, "Saved. Restore it on any computer where you sign in.");
+        paintSync();
+      }),
+    });
+    const restoreBtn = h("button", {
+      type: "button", class: "cz-btn", text: "Restore from account",
+      onclick: () => {
+        if (!confirm("Replace this computer's settings and shortcuts with the ones saved in your account?")) return;
+        accBusy(restoreBtn, "Restoring…", syncMsg, () => Acc.restoreFromAccount());
+      },
+    });
+
+    const planMsg = accMsg();
+    const planInfo = h("p", { class: "cz-note", text: "Loading your plan…" });
+    const planBtns = h("div", { class: "cz-btns" });
+    const paintPlan = (u, usage) => {
+      planBadge.textContent = u.plan === "PRO" ? "Pro" : "Free";
+      planBadge.classList.toggle("is-pro", u.plan === "PRO");
+      const ai = usage && usage.ai;
+      const bits = [u.plan === "PRO" ? "Atlas Pro" : "Free plan"];
+      if (u.plan === "PRO" && u.planExpiresAt) bits.push("renews or ends " + new Date(u.planExpiresAt).toLocaleDateString());
+      if (ai) bits.push("assistant: " + ai.used + " of " + ai.limit + " messages used today");
+      planInfo.textContent = bits.join(" · ") + ".";
+      planBtns.textContent = "";
+      if (u.plan === "PRO") {
+        const b = h("button", { type: "button", class: "cz-btn", text: "Manage subscription",
+          onclick: () => accBusy(b, "Opening…", planMsg, () => Acc.manageBilling()) });
+        planBtns.append(b);
+      } else {
+        const m = h("button", { type: "button", class: "cz-btn is-primary", text: "Upgrade — monthly",
+          onclick: () => accBusy(m, "Opening…", planMsg, () => Acc.upgrade("month")) });
+        const y = h("button", { type: "button", class: "cz-btn", text: "Upgrade — yearly",
+          onclick: () => accBusy(y, "Opening…", planMsg, () => Acc.upgrade("year")) });
+        planBtns.append(m, y);
+      }
+    };
+    paintPlan(user, null);
+    Acc.me().then((d) => d && paintPlan(d.user, d.usage)).catch((err) => {
+      planInfo.textContent = err.message;
+    });
+
+    const delMsg = accMsg();
+    const delBtn = h("button", {
+      type: "button", class: "cz-btn is-danger", text: "Delete account…",
+      onclick: () => {
+        if (!confirm("Delete your Atlas account and everything saved in it? This can't be undone. Settings on this computer stay.")) return;
+        accBusy(delBtn, "Deleting…", delMsg, () => Acc.deleteAccount());
+      },
+    });
+
+    /* automatic sync (sync.js) — Atlas Pro */
+    const S = window.AtlasSync;
+    const autoMsg = accMsg();
+    const autoInfo = h("p", { class: "cz-note" });
+    const autoSwitch = h("input", { type: "checkbox", class: "cz-switch", role: "switch", "aria-label": "Automatic sync" });
+    const autoRow = h("label", { class: "cz-row" }, h("span", { class: "cz-label", text: "Sync automatically" }), autoSwitch);
+    const forgetBtn = h("button", {
+      type: "button", class: "cz-btn", text: "Turn off and delete synced copy",
+      onclick: () => {
+        if (!confirm("Stop syncing and delete the copy kept in your account? What's on this computer stays.")) return;
+        accBusy(forgetBtn, "Deleting…", autoMsg, async () => { await S.forget(); say(autoMsg, "Deleted. This computer keeps its own copy."); });
+      },
+    });
+    const ago = (t) => {
+      const s = Math.round((Date.now() - t) / 1000);
+      return s < 60 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : new Date(t).toLocaleString();
+    };
+    const paintAuto = async () => {
+      if (!S) return;
+      const pro = Acc.isPro();
+      const on = pro && (await S.isOn());
+      const st = await S.status();
+      autoSwitch.checked = on;
+      autoSwitch.disabled = !pro;
+      forgetBtn.hidden = !pro;
+      autoInfo.textContent = !pro
+        ? "Atlas Pro keeps everything in step on every computer you sign in to — on its own, a few seconds after each change."
+        : !on
+          ? "Settings, shortcuts, notes & goals, habits, reminders, focus history and the private space (still encrypted), kept in step on every computer. The first sync brings your account's copy here."
+          : st && !st.ok
+            ? "Couldn't sync " + ago(st.at) + ": " + st.error
+            : st ? "On. Last synced " + ago(st.at) + "." : "On. Syncing…";
+    };
+    autoSwitch.addEventListener("change", () => {
+      const on = autoSwitch.checked;
+      autoSwitch.disabled = true;
+      autoMsg.hidden = true;
+      S.setAuto(on)
+        .then((r) => { if (on && r) say(autoMsg, r.got.length ? "Synced — brought in " + r.got.length + " item(s) from your account." : "Synced."); })
+        .catch((err) => { autoMsg.textContent = err.message; autoMsg.classList.add("is-error"); autoMsg.hidden = false; })
+        .finally(() => { autoSwitch.disabled = false; paintAuto(); });
+    });
+    if (S) S.on(() => { if (autoInfo.isConnected) paintAuto(); });
+    paintAuto();
+    const proSync = !Acc.isPro() && window.AtlasQuickTools && AtlasQuickTools.upgradeNote
+      ? AtlasQuickTools.upgradeNote("Automatic sync is part of Atlas Pro.")
+      : null;
+
+    return [
+      group("Google account", profile,
+        h("div", { class: "cz-btns" },
+          h("button", { type: "button", class: "cz-btn", text: "Manage Google account", onclick: () => Acc.openTab("https://myaccount.google.com/") }),
+          switchBtn, signOut),
+        gMsg),
+      S ? group("Automatic sync", autoRow, autoInfo, proSync, h("div", { class: "cz-btns" }, forgetBtn), autoMsg) : null,
+      group("Save & restore",
+        note("By hand: keep a copy of your Customize settings and shortcuts in your account. Uploaded backgrounds stay on this computer."),
+        h("div", { class: "cz-btns" }, saveBtn, restoreBtn),
+        lastSync, syncMsg),
+      group("Plan", planInfo, planBtns, planMsg),
+      group("Delete account",
+        note("Removes your account from Atlas. Cancel a Pro subscription first."),
+        h("div", { class: "cz-btns" }, delBtn), delMsg),
+    ];
   }
 
   /* ---- privacy: the password-locked private space (vault.js) ----
@@ -1757,12 +2110,62 @@
       !has && optional ? h("span", { class: "cz-file", text: "Uses the normal image" }) : null), { stack: true });
   }
 
+  /* the premium library (premium.js) and "Change by itself" — Atlas Pro */
+  let premiumAsked = 0;
+  function premiumGroup() {
+    const Pm = window.AtlasPremium;
+    if (!Pm) return null;
+    /* opening the tab looks for new wallpapers, at most once a minute */
+    if (Date.now() - premiumAsked > 60000) {
+      premiumAsked = Date.now();
+      Pm.refresh(true);
+    }
+    const pro = Pm.isPro();
+    const items = Pm.items();
+    const current = app.currentWallpaper ? app.currentWallpaper() : null;
+    const msg = h("div", { class: "cz-pwp-msg" });
+    const upsell = (text) => {
+      msg.textContent = "";
+      const QT = window.AtlasQuickTools;
+      if (QT && QT.upgradeNote) msg.append(QT.upgradeNote(text));
+    };
+    const grid = h("div", { class: "cz-pwps" });
+    items.forEach((w) => {
+      const id = Pm.PREFIX + w.id;
+      const locked = !pro || !w.video;
+      grid.append(h("button", {
+        type: "button", class: "cz-pwp" + (id === current && settings.background.mode === "video" ? " is-on" : "") + (locked ? " is-locked" : ""),
+        "data-id": id, title: w.label + (w.category ? " · " + w.category : "") + (locked ? " — Atlas Pro" : ""),
+        onclick: () => {
+          if (locked) return upsell("“" + w.label + "” and the whole 4K library — with new wallpapers added regularly — come with Atlas Pro.");
+          if (app.setWallpaper) app.setWallpaper(id);
+          grid.querySelectorAll(".cz-pwp").forEach((b) => b.classList.toggle("is-on", b.dataset.id === id));
+        },
+      },
+      h("img", { src: w.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }),
+      h("span", { class: "cz-pwp-name", text: w.label }),
+      Pm.isNew(w) ? h("span", { class: "cz-pwp-new", text: "New" }) : null,
+      locked ? h("span", { class: "cz-pwp-lock", "aria-hidden": "true", text: "🔒" }) : null));
+    });
+    const autoRow = pro
+      ? segRow("Change by itself", "background.auto", [["off", "Off"], ["time", "Time of day"], ["weather", "Weather"]], { stack: true })
+      : row("Change by itself", h("button", { type: "button", class: "cz-btn", text: "Time of day or weather 🔒", onclick: () => upsell("Let the wallpaper follow the time of day or the weather outside — part of Atlas Pro.") }), { stack: true });
+    return group("Premium library",
+      items.length
+        ? note(pro ? "4K live wallpapers, with new ones added regularly." : "4K live wallpapers, with new ones added regularly — part of Atlas Pro. The built-in wallpapers above stay free.")
+        : note("The library is loading, or isn't set up on the server yet (WALLPAPER_CDN)."),
+      items.length ? grid : null,
+      autoRow,
+      pro && settings.background.auto === "weather" ? note("Uses the weather card's location. Tag your own wallpapers in config.js to include them.") : null,
+      msg);
+  }
+
   /* the built-in live wallpapers; picking one hands over to app.js */
   function wallpaperButtons() {
     const wrap = h("div", { class: "cz-wps" });
     const list = typeof WALLPAPERS !== "undefined" ? WALLPAPERS : [];
     const current = app.currentWallpaper ? app.currentWallpaper() : null;
-    list.forEach((wp) => {
+    list.filter((wp) => !wp.premium).forEach((wp) => {
       wrap.append(h("button", {
         type: "button", class: "cz-wp" + (wp.id === current ? " is-on" : ""), "data-id": wp.id, text: wp.label,
         onclick: () => {
@@ -1985,6 +2388,10 @@
       if (isOpen() && activeTab === "privacy") renderTab();
     });
   }
+  /* the Background tab follows the premium library as it loads */
+  if (window.AtlasPremium) AtlasPremium.on(() => { if (isOpen() && activeTab === "background") renderTab(); });
+  /* the Account tab follows sign-in and sign-out, from any tab */
+  if (Acc) Acc.on(() => { if (isOpen() && activeTab === "account") renderTab(); });
 
   /* ================= PUBLIC API ========================================== */
   /* filled in by app.js: setWallpaper, currentWallpaper, and for the
@@ -2034,5 +2441,7 @@
     scheduleFields,
     media,
     app,
+    /* the checks settings go through, for panels outside Customize */
+    clean: { site: cleanSite, sites: normalizeSites, minRules: normalizeMinRules, quotes: normalizeQuotes },
   };
 })();

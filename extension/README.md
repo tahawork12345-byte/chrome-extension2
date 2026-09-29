@@ -23,7 +23,7 @@ Nothing else to change. To add a 4th wallpaper, add one line to `WALLPAPERS` in 
 
 ## Customize (in the page)
 Open the **Customize** panel from the palette icon on the left rail, the
-wallpaper menu (◑ → Customize…), the Command Center (Ctrl+Space → "Customize"),
+the Command Center (Ctrl+Space → "Customize"),
 or by right-clicking the bare wallpaper. Every change applies live and is saved.
 - **Theme** — presets, accent / text / glass colours, glass opacity, blur,
   borders, roundness, font
@@ -87,6 +87,162 @@ Customize → **Language** (or Command Center → "Language & Translation").
   has its own play button. Voices come from the computer (`voice.js`), so
   the list differs between Windows, macOS and ChromeOS.
 
+## Quick tools (bottom right)
+Two buttons in the corner: **Quick tools** (⊞) and the ✦ chat
+(`quicktools.js`). Quick tools opens a grid — Notes & Goals, Optimize,
+Site blocker, Daily quote — and each tool opens in
+the same panel (← back to the grid, Esc steps back).
+- **Notes & Goals** — *Goals*: each goal has a progress bar (green at 100%)
+  and its tasks; every task has its own **Complete** button (the task turns
+  green; click again to undo) and an optional date, time and day. With
+  "Remind me" on, the task becomes a one-time reminder in the Reminders list
+  and rings anywhere in Chrome; completing or deleting the task removes it.
+  The bubble shows how many tasks are due. *Notes*: quick notes (Ctrl+Enter
+  adds one), editable in place. Stored under `qt:tasks`, on this computer.
+- **Optimize** — the open tabs (switch, sleep or close each), **Close
+  duplicates**, **Sleep tabs** (frees memory; they reload when opened),
+  **Undo sleep**, **Undo close** (reopens the last closed batch), and
+  **Auto optimize**: sleep tabs unused for 15 min–4 h, and close a tab that
+  opens a page already open (switching to the existing one). Pinned, playing
+  and active tabs are never touched. `background.js` runs the automatic part.
+- **Site blocker**, **Daily quote** — their settings, below.
+
+Zen clock and minimal mode are the two round buttons at the bottom left,
+styled like these two; hovering one shows its name.
+
+## Focus timer
+Quick tools → **Focus**, Command Center → "Start Focus", or the timer pill
+(`focus.js`). You focus for 25 minutes, then take a 5-minute break, and
+every 4th break is 15 minutes. All of these can be changed. While you
+focus:
+- the Site blocker's list is blocked, even if the blocker is off, and the
+  blocked page offers no 5-minute break
+- the wallpaper dims
+- a pill at the top of the page shows the time left, with pause and stop
+
+When time's up, you hear a sound (any reminder sound, your own, or none)
+and get a notification. The next phase can start by itself. The clock runs
+in `background.js` (`focus:state`, a `chrome.alarms` alarm), so a session
+ends on time with no new tab open. Finished and stopped sessions are kept
+in `focus:history`, and the view shows today's sessions, the streak and
+the history.
+
+## Habits
+Quick tools → Notes & Goals → **Habits**. Each habit has:
+- a check for today
+- the days it's due
+- a streak (due days in a row), the best streak and the total
+- a heatmap of the last 15 weeks (click a square to fill in a day you forgot)
+
+They're stored in `qt:habits`. Free accounts track up to
+`PRO_CONFIG.freeHabits` (3). Pro tracks up to 30.
+
+## Stats
+Quick tools → **Stats**, or Command Center → "Stats" (`stats.js`). It shows:
+- time focused and focus sessions
+- tasks done and habits ticked off
+- time on the web and blocked visits
+- focus by day and web time by day, as bar charts
+- where your time went (the top sites)
+- the most blocked sites
+
+`background.js` counts the seconds on the site in front of you. It only
+counts while Chrome is focused and you're at the computer, or while the tab
+is playing sound. It keeps 62 days in `stats:days`, on this computer only.
+Free accounts see today. Pro sees 7 and 30 days and can turn on a **weekly
+summary email** (sent on Mondays). For the email, the page sends this
+week's and last week's totals to the backend, at most every 3 hours.
+
+## Automatic sync (Pro)
+Customize → Account → **Sync automatically** (`sync.js`). These stay the
+same on every computer signed in to the account:
+- settings and shortcuts
+- notes & goals, habits
+- reminders and the alarm sound
+- focus history
+- the private space, sent as the encrypted blob it already is
+
+`background.js` stamps each value when it changes (`sync:meta`). Open new
+tabs send what changed a few seconds later, and check for changes when
+they open and every 5 minutes. Only one tab syncs at a time (a Web Lock).
+For each value, the newest change wins. When settings, shortcuts or the
+private space arrive from another computer, a fresh tab reloads itself and
+an older one offers **Reload**. The manual **Save / Restore** buttons are
+still there for free accounts.
+
+## Premium wallpapers (Pro)
+Customize → Background → **Premium library** (`premium.js`). The list
+comes from the backend (`backend/src/data/wallpapers.js`, files on
+`WALLPAPER_CDN`). Everyone sees the thumbnails, but only Pro gets the video
+links. Unlocked wallpapers join `WALLPAPERS` with ids starting `p-`, so the
+schedule, the menus and "next wallpaper" all include them. The bundled
+wallpapers in `config.js` stay free.
+
+**Change by itself** (Pro) picks a wallpaper that fits the time of day
+(morning, day, evening, night) or the weather card's weather (clear,
+cloudy, rain, snow, fog, storm). It uses each wallpaper's `tags`, and you
+can add tags to your own in `config.js`. It changes when the period
+changes, and a wallpaper you pick by hand holds until then.
+
+## Daily quote
+A quote above the search bar (`quote.js`) from a built-in list (Motivation,
+Focus, Wisdom, Calm), your own quotes, or both. It stays the same all day,
+or changes on every new tab. Hover it for ↻ (another quote, which then holds
+for the day, in every tab), copy, and settings. Quick tools → Daily quote:
+show / hide, how often, which quotes, the category, and your own quotes
+(add, edit, delete — they're part of your settings, so Backup and account
+sync include them). Move or resize it under Customize → Widgets.
+
+## Minimal mode
+A quiet page where only the widgets you keep stay on screen (clock and search
+bar by default) and the rest fade away (`minimal.js`). Switch it with the
+**M** key, the round ▢ Minimal button (bottom left), Command Center → "Minimal Mode", or
+the small "Minimal · Exit" button at the top.
+
+Right-click the ▢ button (or Command Center → "Minimal Mode Settings") for
+its settings: Off / On / **At set times**. Add as many times as
+you need (days + from / to), or use a ready-made one: Work hours, Evenings,
+Night, Weekends. Overnight times such as 22:00–07:00 work. Switching by hand
+during a set time lasts until that time starts or ends, then the schedule
+takes over again. Also: which widgets to keep, an extra background dim, and
+whether to show the Exit button.
+
+## Zen clock
+The round ◷ Zen clock button (bottom left), the **Z** key or Command Center → "Zen Clock"
+opens a full-screen clock (`zen.js`). The sliders button next to ✕ has its
+options: show the day / date / year (and seconds), show the page's widgets,
+show the wallpaper, a background colour instead, and other places' time —
+type a city, a country or a time zone ("Karachi", "Japan", "Europe/Paris").
+Esc closes it.
+
+## Site blocker
+Quick tools → **Site blocker**: a list of sites (or one-click groups: Social,
+Video, News, Shopping) that open a "This site is blocked" page
+(`blocked.html`) instead — always, or only on chosen days between two times.
+The blocked page can offer a 5-minute break, and shows your own message.
+`background.js` turns the list into `declarativeNetRequest` rules and
+re-checks the schedule every minute; tabs already open on a blocked site
+switch to the blocked page too.
+
+## Account (Google sign-in)
+Customize → **Account** signs in with Google through the backend in
+`backend/` (`account.js`). Signed in, it shows your profile and plan, and can:
+save / restore your Customize settings and shortcuts to the account, open
+your Google account settings, switch account, sign out, upgrade or manage
+Atlas Pro, and delete the account.
+
+Setup:
+1. Google Cloud Console → Credentials → **OAuth client ID → Web application**.
+   Under "Authorized redirect URIs" add `https://<extension-id>.chromiumapp.org/`
+   (the Account tab shows the exact one while sign-in isn't set up).
+2. Put that client ID in `ACCOUNT_CONFIG.googleClientId` (`config.js`) and
+   in the backend's `GOOGLE_CLIENT_IDS`.
+3. Set `ACCOUNT_CONFIG.api` to the backend URL (your Vercel URL, or
+   `http://localhost:3001` with `npm run backend`).
+
+An unpacked extension gets a different ID on each computer, so each one
+needs its redirect URI added (or pin the ID with a `key` in manifest.json).
+
 ## Customize (defaults in config.js)
 The starting content lives in **`config.js`**:
 - `WALLPAPERS` — wallpaper list and filenames
@@ -126,7 +282,7 @@ extension itself. Any server works if it takes `POST { messages: [{role, content
 and returns `{ "reply": "..." }`.
 
 ## Now playing
-The card above the wallpaper toggle (bottom left) shows whatever is playing in
+The card above the Zen clock / Minimal buttons (bottom left) shows whatever is playing in
 another browser tab (Spotify, YouTube Music, YouTube, SoundCloud, Deezer, Apple
 Music, or any site that uses the browser's media controls), with artwork,
 previous / play-pause / next, and a seekable progress bar. Click the title to
@@ -146,6 +302,11 @@ are outside the browser and are not shown.
   websites"; the scripts only read media metadata and never send anything
   outside the browser.
 
+- `identity` — the Google sign-in popup (Customize → Account).
+- `declarativeNetRequestWithHostAccess` — the site blocker; it uses the
+  host access the extension already has, so Chrome shows no new warning.
+- `idle` — Stats counts time on a site only while you're at the computer.
+  Chrome shows no warning for it.
 - The translator content script (`languages.js`, `translate.js`) does
   nothing until a language is picked; then it sends page text to Google
   Translate.

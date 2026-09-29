@@ -184,7 +184,6 @@
       v.defaultPlaybackRate = rate; // survives a src change
       v.playbackRate = rate;
     });
-    renderWpMenu();
   }
 
   /* pick a built-in wallpaper; also switches the background back to it.
@@ -201,6 +200,8 @@
     wpScheduling = false;
   }
   AS.app.setWallpaper = (id) => setWallpaper(id);
+  /* premium.js "Change by itself": like the schedule, not a pick by hand */
+  AS.app.autoWallpaper = (id) => { if (WALLPAPERS.some((w) => w.id === id) && id !== currentWp) setWallpaper(id, false, true); };
 
   /* --- wallpaper schedule (Customize > Background > Schedule) -----------
      Each rule says "from this moment, show this wallpaper". The rule whose
@@ -246,41 +247,6 @@
     const next = (((i < 0 ? 0 : i + delta) % WALLPAPERS.length) + WALLPAPERS.length) % WALLPAPERS.length;
     setWallpaper(WALLPAPERS[next].id);
   }
-
-  const wpMenu = $("wpMenu");
-  function renderWpMenu() {
-    wpMenu.innerHTML = "";
-    const live = AS.get().background.mode === "video";
-    WALLPAPERS.forEach((w) => {
-      const b = document.createElement("button");
-      b.textContent = w.label;
-      if (live && w.id === currentWp) b.classList.add("is-on");
-      b.addEventListener("click", () => {
-        setWallpaper(w.id);
-        wpMenu.hidden = true;
-      });
-      wpMenu.appendChild(b);
-    });
-    const more = document.createElement("button");
-    more.textContent = "Customize…";
-    more.addEventListener("click", () => {
-      wpMenu.hidden = true;
-      AS.open("background");
-    });
-    wpMenu.appendChild(more);
-  }
-  $("wpToggle").addEventListener("click", (e) => {
-    e.stopPropagation();
-    wpMenu.hidden = !wpMenu.hidden;
-    if (!wpMenu.hidden) {
-      // the list scrolls past 3 entries — bring the current one into view
-      const on = wpMenu.querySelector("button.is-on");
-      if (on) on.scrollIntoView({ block: "nearest" });
-    }
-  });
-  document.addEventListener("click", (e) => {
-    if (!$("wpControl").contains(e.target)) wpMenu.hidden = true;
-  });
 
   // save power when the tab isn't visible
   document.addEventListener("visibilitychange", () => {
@@ -2527,6 +2493,158 @@
         run: () => openAi(),
       },
       {
+        id: "sys:zen",
+        title: "Zen Clock",
+        description: "A full-screen clock, with other places' time",
+        category: "Atlas",
+        keywords: ["zen", "clock", "time", "focus", "fullscreen", "world", "timezone", "date"],
+        mark: "◷",
+        run: () => window.AtlasZen && AtlasZen.open(),
+      },
+      {
+        id: "sys:tools",
+        title: "Quick Tools",
+        description: "Notes, optimize, blocker, zen clock, minimal, quote",
+        category: "Atlas",
+        keywords: ["quick", "tools", "toolbox", "utilities"],
+        mark: "⊞",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("home"),
+      },
+      {
+        id: "sys:quote",
+        title: "New Quote",
+        description: "Another quote for today",
+        category: "Atlas",
+        keywords: ["quote", "quotes", "inspiration", "motivation", "daily", "saying"],
+        mark: "❝",
+        run: () => window.AtlasQuote && AtlasQuote.next(),
+      },
+      {
+        id: "sys:quotes",
+        title: "Daily Quote Settings",
+        description: "Categories, how often it changes, your own quotes",
+        category: "Atlas",
+        keywords: ["quote", "quotes", "daily", "my quotes", "add quote"],
+        mark: "❝",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("quote"),
+      },
+      {
+        id: "sys:tasks",
+        title: "Notes & Goals",
+        description: "Notes, goals with progress, tasks with reminders",
+        category: "Atlas",
+        keywords: ["notes", "note", "goals", "goal", "tasks", "task", "todo", "to do", "progress", "checklist"],
+        mark: "✓",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.openTasks(),
+      },
+      {
+        id: "sys:optimize",
+        title: "Optimize Tabs",
+        description: "Close duplicates, sleep tabs, auto optimize",
+        category: "Tabs",
+        keywords: ["optimize", "tabs", "memory", "sleep", "duplicate", "close", "clean", "speed", "performance"],
+        mark: "⚡",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.openOptimize(),
+      },
+      {
+        id: "sys:dedupe",
+        title: "Close Duplicate Tabs",
+        description: "Keep one tab per page",
+        category: "Tabs",
+        keywords: ["duplicate", "duplicates", "close", "tabs", "same"],
+        mark: "⧉",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.closeDuplicates(),
+      },
+      {
+        id: "sys:sleep",
+        title: "Sleep Inactive Tabs",
+        description: "Free memory; they reload when you open them",
+        category: "Tabs",
+        keywords: ["sleep", "discard", "suspend", "memory", "tabs", "ram"],
+        mark: "☾",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.sleepTabs(),
+      },
+      {
+        id: "sys:minimal",
+        title: "Minimal Mode",
+        description: "Hide everything but what you keep — on, off, or at set times",
+        category: "Atlas",
+        keywords: ["minimal", "minimalist", "clean", "quiet", "hide", "focus", "simple", "declutter"],
+        mark: "▢",
+        /* the title says which way it goes */
+        dynamic: () => (window.AtlasMinimal && AtlasMinimal.isOn() ? { title: "Exit Minimal Mode" } : null),
+        run: () => window.AtlasMinimal && AtlasMinimal.toggle(),
+      },
+      {
+        id: "sys:minimalset",
+        title: "Minimal Mode Settings",
+        description: "What stays on screen, and when it turns on by itself",
+        category: "Atlas",
+        keywords: ["minimal", "schedule", "auto", "time", "settings"],
+        mark: "▢",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("minimal"),
+      },
+      {
+        id: "sys:focus",
+        title: "Start Focus",
+        description: "A 25-minute focus session that blocks distracting sites",
+        category: "Focus",
+        keywords: ["focus", "pomodoro", "timer", "work", "concentrate", "deep work", "study", "break"],
+        mark: "◷",
+        /* the title says what the button would do right now */
+        dynamic: () => {
+          const F = window.AtlasFocus;
+          if (!F || !F.isRunning()) return null;
+          return { title: F.state().paused ? "Resume Focus" : "Pause Focus" };
+        },
+        run: () => window.AtlasFocus && AtlasFocus.toggle(),
+      },
+      {
+        id: "sys:focusview",
+        title: "Focus Timer",
+        description: "Timer, settings and your focus history",
+        category: "Focus",
+        keywords: ["focus", "pomodoro", "timer", "history", "sessions", "settings"],
+        mark: "◷",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("focus"),
+      },
+      {
+        id: "sys:stats",
+        title: "Stats",
+        description: "Time on each site, focus, tasks and habits — today, this week, this month",
+        category: "Focus",
+        keywords: ["stats", "statistics", "dashboard", "time", "screen time", "productivity", "report", "analytics", "weekly"],
+        mark: "▥",
+        run: () => window.AtlasStats && AtlasStats.open(),
+      },
+      {
+        id: "sys:habits",
+        title: "Habits",
+        description: "Tick off today's habits and keep your streaks going",
+        category: "Focus",
+        keywords: ["habit", "habits", "streak", "daily", "routine", "tracker", "check"],
+        mark: "✓",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.openHabits(),
+      },
+      {
+        id: "sys:blocker",
+        title: "Block Sites",
+        description: "Keep distracting sites closed, always or at set times",
+        category: "Atlas",
+        keywords: ["block", "blocker", "focus", "distraction", "site", "website", "social"],
+        mark: "⊘",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("blocker"),
+      },
+      {
+        id: "sys:account",
+        title: "Account",
+        description: "Google sign-in, sync, plan and sign out",
+        category: "Atlas",
+        keywords: ["account", "google", "sign in", "login", "sign out", "logout", "profile", "sync", "pro", "upgrade"],
+        mark: "◉",
+        run: () => AS.open("account"),
+      },
+      {
         id: "sys:talk",
         title: "Talk to Atlas",
         description: "Speak your question, hear the answer",
@@ -3300,6 +3418,7 @@
     store.get(["wallpaper", "workspace", "usage", "launcherTabs", HISTORY_KEY, WP_MANUAL_KEY, LAYOUT_KEY]),
     AS.ready,
     V ? V.ready : null,
+    window.AtlasPremium ? AtlasPremium.ready : null,
   ]).then(([s]) => {
     /* the saved layout replaces the config.js defaults; a first launch, or
        anything unreadable, falls back to them */
@@ -3325,6 +3444,7 @@
     }
     applyBackground(true);
     applyWallpaperSchedule(true); // a scheduled change away from a colour / image
+    if (window.AtlasPremium) AtlasPremium.start();
     $("q").focus();
     /* back in, if the user chose to stay unlocked for the session */
     if (V) V.restore(AS.get().privacy.stay);

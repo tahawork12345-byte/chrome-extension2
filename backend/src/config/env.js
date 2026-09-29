@@ -23,6 +23,16 @@ export const env = {
     PRO: int(process.env.AI_DAILY_LIMIT_PRO, 500),
   },
 
+  /* the weekly stats email (Resend) and the cron that sends it */
+  email: {
+    resendKey: process.env.RESEND_API_KEY || "",
+    from: process.env.EMAIL_FROM || "",
+  },
+  cronSecret: process.env.CRON_SECRET || "",
+
+  /* where the premium wallpapers live (src/data/wallpapers.js), no trailing slash */
+  wallpaperCdn: (process.env.WALLPAPER_CDN || "").replace(/\/+$/, ""),
+
   paddle: {
     env: process.env.PADDLE_ENV === "production" ? "production" : "sandbox",
     apiKey: process.env.PADDLE_API_KEY || "",

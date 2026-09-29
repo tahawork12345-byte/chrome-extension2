@@ -27,10 +27,15 @@ model User {
 
   paddleCustomerId String? @unique
 
+  /* the Monday summary email of the stats dashboard (Pro) */
+  weeklyEmail Boolean @default(false)
+
   refreshTokens RefreshToken[]
   subscriptions Subscription[]
   usage         Usage[]
   settings      UserSettings?
+  weeklyReports WeeklyReport[]
+  syncDoc       SyncDoc?
 }
 
 model RefreshToken {
@@ -77,6 +82,30 @@ model Usage {
 model UserSettings {
   userId    String   @id
   data      Json
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/* a week of the stats dashboard, sent by the extension (week = its Monday) */
+model WeeklyReport {
+  userId    String
+  week      DateTime  @db.Date
+  data      Json
+  sentAt    DateTime?
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, week])
+}
+
+/* automatic sync (Pro): { name: { value, at } } per user; rev guards
+   against two computers writing at once */
+model SyncDoc {
+  userId    String   @id
+  data      Json
+  rev       Int      @default(0)
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

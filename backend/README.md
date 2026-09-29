@@ -56,6 +56,16 @@ After changing `schema.prisma`, run `npm run db:migrate -- --name what_changed`.
 4. Under Developer tools → Notifications, add the destination `https://YOUR-BACKEND/billing/webhook` with the events `subscription.*`. Copy the secret key into `PADDLE_WEBHOOK_SECRET`.
 5. When you go live, set `PADDLE_ENV=production` and use the live keys and price IDs.
 
+**Resend (the weekly stats email).** Create an API key at resend.com and verify a sending domain.
+
+- Put the key in `RESEND_API_KEY`, and a sender on that domain in `EMAIL_FROM`.
+- Set `CRON_SECRET` to a long random string. Vercel Cron sends it to `/cron/weekly-email` every Monday at 08:00 UTC (see `vercel.json`).
+
+**Premium wallpapers.** Put the videos and thumbnails in a public CDN folder (for example Cloudflare R2, Bunny or S3) and set `WALLPAPER_CDN` to that folder's URL.
+
+- The list is `src/data/wallpapers.js`. To add a wallpaper, upload its files, add one entry, and deploy.
+- Extensions pick up the new list within a day.
+
 ## Deploy to Vercel
 
 1. Create a new Vercel project with **Root Directory = `backend`**.
@@ -81,6 +91,13 @@ Send `Authorization: Bearer <accessToken>` on every route marked 🔒.
 | GET 🔒 | `/ai/usage` | → `{ used, limit, remaining }` |
 | GET 🔒 | `/settings` | → `{ data, updatedAt }` |
 | PUT 🔒 | `/settings` | `{ data: {...} }` → `{ data, updatedAt }` |
+| PUT 🔒 Pro | `/sync` | `{ keys: { name: { value, at } } }` → `{ keys, rev }`: everything stored. The newest `at` wins for each key. |
+| DELETE 🔒 | `/sync` | → 204 (deletes the synced copy) |
+| GET 🔒 | `/stats/prefs` | → `{ weeklyEmail }` |
+| PUT 🔒 | `/stats/prefs` | `{ weeklyEmail }` → `{ weeklyEmail }`. Turning it on needs Pro. |
+| PUT 🔒 Pro | `/stats/week` | `{ weeks: [{ week: "YYYY-MM-DD" (a Monday), data }] }` → `{ ok }` |
+| GET | `/cron/weekly-email` | Vercel Cron only (`Bearer $CRON_SECRET`). Emails last week's summary. |
+| GET | `/wallpapers` | → `{ items: [{ id, label, category, tags, thumb, added, video }], pro }`. `video` is only filled in for Pro. |
 | GET | `/billing/config` | → `{ environment, clientToken, prices }` |
 | POST 🔒 | `/billing/checkout` | `{ interval: "month" \| "year" }` → `{ url }` (open it in a new tab) |
 | POST 🔒 | `/billing/portal` | → `{ url }` (the page for cancelling or updating the card) |
@@ -107,3 +124,17 @@ Errors come back as `{ error, code? }`. The extension should handle these codes:
 The webhook is the **only** place the plan changes.
 
 To lock a route to Pro users, add `requirePro` after `requireAuth` (see `src/middleware/auth.js`).
+
+## What Pro includes
+
+| Feature | Free | Pro |
+|---|---|---|
+| Premium 4K wallpaper library | Thumbnails only | Every wallpaper, plus new ones as they're added |
+| Wallpaper changes by time of day or weather | – | ✓ |
+| Stats dashboard | Today | 7 and 30 days, plus the Monday email |
+| Automatic sync | Manual save and restore only | Everything, automatically (`/sync`) |
+| Habits | 3 | 30 |
+| Focus timer | ✓ | ✓ |
+| Assistant messages a day | `AI_DAILY_LIMIT_FREE` | `AI_DAILY_LIMIT_PRO` |
+
+Change the free limits on the extension side in `PRO_CONFIG` (`extension/config.js`).

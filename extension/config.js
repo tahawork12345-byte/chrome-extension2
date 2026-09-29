@@ -6,14 +6,19 @@
 /* ---------- 1. WALLPAPERS -------------------------------------
    Drop your own .mp4 files into  extension/wallpapers/
    Keep the same filenames and nothing else needs to change.
-   To add more wallpapers, just append an entry to this list. */
+   To add more wallpapers, just append an entry to this list.
+   These are free for everyone; the premium library (Atlas Pro) comes
+   from the backend (backend/src/data/wallpapers.js).
+   tags: when "Change by itself" (Customize > Background, Pro) may pick
+   it — morning, day, evening, night; clear, cloudy, rain, snow, fog,
+   storm. No tags of a kind = fits any time / any weather. */
 const WALLPAPERS = [
-  { id: "w1", label: "Wallpaper 01", file: "wallpapers/wallpaper-1.mp4" },
-  { id: "w2", label: "Wallpaper 02", file: "wallpapers/wallpaper-2.mp4" },
-  { id: "w3", label: "Wallpaper 03", file: "wallpapers/wallpaper-3.mp4" },
-  { id: "w4", label: "Wallpaper 04", file: "wallpapers/wallpaper-4.mp4" },
-  { id: "w5", label: "Wallpaper 05", file: "wallpapers/wallpaper-5.mp4" },
-  { id: "w6", label: "Wallpaper 06", file: "wallpapers/wallpaper-6.mp4" },
+  { id: "w1", label: "Wallpaper 01", file: "wallpapers/wallpaper-1.mp4", tags: [] },
+  { id: "w2", label: "Wallpaper 02", file: "wallpapers/wallpaper-2.mp4", tags: [] },
+  { id: "w3", label: "Wallpaper 03", file: "wallpapers/wallpaper-3.mp4", tags: [] },
+  { id: "w4", label: "Wallpaper 04", file: "wallpapers/wallpaper-4.mp4", tags: [] },
+  { id: "w5", label: "Wallpaper 05", file: "wallpapers/wallpaper-5.mp4", tags: [] },
+  { id: "w6", label: "Wallpaper 06", file: "wallpapers/wallpaper-6.mp4", tags: [] },
 ];
 
 /* ---------- 2. ICONS ------------------------------------------
@@ -187,6 +192,32 @@ const AI_CONFIG = {
   greeting: "Hi, I'm Atlas. Ask me anything.",
   notConfigured:
     "The assistant isn't connected yet. Add your endpoint URL in config.js (AI_CONFIG.endpoint) to enable replies.",
+};
+
+/* ---------- 5b. ACCOUNT ----------------------------------------
+   Sign in with Google (Customize > Account), through the backend in
+   backend/ (see backend/README.md).
+   api:            the backend's URL, no trailing slash — your Vercel URL
+                   once deployed, or http://localhost:3001 for npm run dev
+   googleClientId: a "Web application" OAuth client from Google Cloud
+                   Console. Add https://<extension-id>.chromiumapp.org/
+                   under "Authorized redirect URIs", and put the same ID
+                   in the backend's GOOGLE_CLIENT_IDS.
+   Empty values hide sign-in and show a setup note instead.        */
+const ACCOUNT_CONFIG = {
+  api: "http://localhost:3001",
+  googleClientId: "382599280686-8ge2r7238h93jum0gfeocffldnoean85.apps.googleusercontent.com",
+};
+
+/* ---------- 5c. ATLAS PRO --------------------------------------
+   What a free account can use; Pro (the $5 plan) lifts these. The
+   backend re-checks every Pro call, so these only shape the screens.
+   freeHabits:    habits a free account can track
+   freeStatsDays: days of the stats dashboard a free account sees
+                  (1 = today only; Pro sees 30 days and the weekly email) */
+const PRO_CONFIG = {
+  freeHabits: 3,
+  freeStatsDays: 1,
 };
 
 /* ---------- 6. WEATHER -----------------------------------------
