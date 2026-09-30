@@ -24,7 +24,9 @@ export function toContents(messages) {
   return list;
 }
 
-export async function askGemini(contents) {
+/* opts: { system, schema, maxTokens, temperature }. With a schema the
+   answer is JSON matching it (Gemini's structured output), returned as text. */
+export async function askGemini(contents, opts = {}) {
   const key = requireEnv(env.geminiKey, "GEMINI_API_KEY");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(env.geminiModel)}:generateContent`;
   let r;
@@ -33,9 +35,12 @@ export async function askGemini(contents) {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM }] },
+        systemInstruction: { parts: [{ text: opts.system || SYSTEM }] },
         contents,
-        generationConfig: { maxOutputTokens: 1024, temperature: 0.7 },
+        generationConfig: Object.assign(
+          { maxOutputTokens: opts.maxTokens || 1024, temperature: opts.temperature ?? 0.7 },
+          opts.schema ? { responseMimeType: "application/json", responseSchema: opts.schema } : {}
+        ),
       }),
       signal: AbortSignal.timeout(45_000),
     });

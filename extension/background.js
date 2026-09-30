@@ -773,7 +773,7 @@ chrome.runtime.onMessage.addListener((msg) => {
    the stamping happens here, once: "sync:meta" = { key: time }.
    sync.js writes values it brings from the account together with
    "sync:meta" in one set — such a change isn't stamped again.            */
-const SYNC_KEYS = ["appearance", "layout", "qt:tasks", "qt:habits", "reminders", "alarmPrefs", "focus:history", "vault"];
+const SYNC_KEYS = ["appearance", "layout", "qt:tasks", "qt:habits", "reminders", "alarmPrefs", "focus:history", "vault", "wp:favs"];
 const SYNC_META = "sync:meta";
 
 let syncMetaChain = Promise.resolve();

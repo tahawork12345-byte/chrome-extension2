@@ -184,19 +184,66 @@ private space arrive from another computer, a fresh tab reloads itself and
 an older one offers **Reload**. The manual **Save / Restore** buttons are
 still there for free accounts.
 
-## Premium wallpapers (Pro)
-Customize → Background → **Premium library** (`premium.js`). The list
-comes from the backend (`backend/src/data/wallpapers.js`, files on
-`WALLPAPER_CDN`). Everyone sees the thumbnails, but only Pro gets the video
-links. Unlocked wallpapers join `WALLPAPERS` with ids starting `p-`, so the
-schedule, the menus and "next wallpaper" all include them. The bundled
-wallpapers in `config.js` stay free.
+## Calendar agenda (Pro)
+Quick tools → **Calendar** (`calendar.js`) shows today and the next 7 days
+from every calendar that is ticked in Google Calendar. Declined events are
+left out. An event opens in Google Calendar when you click it, and a Meet
+event shows a Join button. Signing in with Google also asks for read-only
+calendar access (`calendar.readonly`), so it's one Google screen, and
+`account.js` hands the token to `calendar.js` (`adopt`). If the user
+unticks the calendar box, or signed in before this existed, the view first
+tries to connect silently. If that fails, it shows **Connect Google
+Calendar** (`AtlasAccount.googleToken`). Signing out forgets the calendar
+on this computer.
 
-**Change by itself** (Pro) picks a wallpaper that fits the time of day
-(morning, day, evening, night) or the weather card's weather (clear,
-cloudy, rain, snow, fog, storm). It uses each wallpaper's `tags`, and you
-can add tags to your own in `config.js`. It changes when the period
-changes, and a wallpaper you pick by hand holds until then.
+The extension fetches events straight from Google, so they never pass
+through the Atlas server. They are cached in `cal:events` and fetched again
+when the cache is more than 10 minutes old. Google's token lasts an hour and
+is renewed without opening a window. If Google wants the user to confirm
+again, the view shows **Reconnect**.
+
+## Day planner (Pro)
+Quick tools → **Day planner** (`planner.js`, or "Plan my day" in the
+Command Center) sends today's inputs to the backend's `/ai/plan`. The inputs
+are:
+- open tasks from Notes & Goals (overdue, due today, or undated)
+- Calendar events
+- reminders
+- habits still to do today
+- the focus-timer lengths and an optional note
+
+Gemini returns a timeline for the chosen window: fixed events, focus blocks
+for tasks, breaks, habits, and the tasks that didn't fit. Each plan uses one
+assistant message, and the planner needs an Atlas account.
+
+On the timeline:
+- The current block is highlighted.
+- **Start focus** starts the focus timer, and **Complete** ticks the task
+  off in Notes & Goals.
+- **Remind me when each block starts** writes a reminder for each block
+  still to come. These are tagged `fromPlan`, and the next plan replaces
+  them.
+
+The plan is kept in `planner:day` until the day ends.
+
+## Online wallpapers
+Customize → Background → **Online library** (`library.js`). Filter by
+All, 4K, Live, Anime or Nature, or search.
+
+- **Stills** come from the Wallhaven API (SFW only). The extension calls it
+  directly and needs no key.
+- **Live videos** come from Pexels Videos, searched through the backend
+  (`GET /wallpapers/live`) so the API key stays on the server. Everyone sees
+  the thumbnails, but only Pro gets the video links.
+
+The ☆ on a card saves it to **Favourites** (`wp:favs`, synced with the
+account). Favourites get their own chip at the front of the row and come
+first in **All**.
+
+Files are shown straight from Wallhaven and Pexels, never copied or
+re-hosted. The pick is saved in `settings.background.online` (mode
+`online`). Customize credits the Pexels creator of the video on screen.
+The bundled wallpapers in `config.js` stay free.
 
 ## Daily quote
 A quote above the search bar (`quote.js`) from a built-in list (Motivation,

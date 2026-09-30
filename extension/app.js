@@ -80,16 +80,32 @@
   if (clockEl && typeof ResizeObserver !== "undefined") new ResizeObserver(syncClockHeight).observe(clockEl);
 
   /* ================= WALLPAPER ===========================================
-     The background is one of: a built-in live wallpaper, the user's own
-     uploaded image / video, a solid colour or a gradient (Customize >
-     Background). Videos crossfade between two layers; the image and colour
-     layers fade in above them. */
+     The background is one of: a built-in live wallpaper, one from the
+     online library (library.js: a Wallhaven image or a Pexels video, shown
+     from their servers), the user's own uploaded image / video, a solid
+     colour or a gradient (Customize > Background).
+
+     Two video layers and two image layers, each in a .wp-slot. A new
+     wallpaper is loaded first, then its layer comes up over the old one,
+     fading in as it settles from a slight zoom; the old one drops only once
+     covered, so a switch never flashes black. An online image with a small
+     preview shows that at once, blurred, and sharpens when the full picture
+     has arrived. The image and colour layers sit above the videos. */
   const layers = [$("videoA"), $("videoB")];
-  const wpImage = $("wpImage");
+  const imgs = [$("wpImage"), $("wpImageB")];
+  const wallEl = document.querySelector(".wallpaper");
   const wpFill = $("wpFill");
-  let front = 0;
+  const SETTLE = 1600;  // ms: the incoming layer's fade and settle (style.css)
+  let front = 0;        // the video layer on screen
+  let imgFront = 0;     // the image layer on screen
   let currentWp = null;
   let shownVideo = "";  // src the video layers are showing, "" when none
+  let shownImage = "";  // likewise for the image layers
+  let loadingVideo = ""; // src on its way in, "" when none
+  let loadingImage = "";
+  let want = null;      // what the latest applyBackground asked for
+  let videoHideTimer = 0;
+  let imageHideTimer = 0;
   let upload = { id: 0, url: "", kind: "" }; // the uploaded file, as an object URL
   let bgToken = 0;      // drops stale async loads when settings change fast
 
@@ -104,36 +120,147 @@
     v.load();
   }
 
-  function showVideo(src, instant) {
-    if (shownVideo === src) return;
-    shownVideo = src;
-    const showing = layers[front];
-    const next = layers[1 - front];
+  /* resolves once the video can play (or has failed, or taken too long) */
+  function videoReady(v, ms = 12000) {
+    return new Promise((resolve) => {
+      if (v.readyState >= 3) return resolve(true);
+      const done = (e) => {
+        clearTimeout(t);
+        v.removeEventListener("canplay", done);
+        v.removeEventListener("error", done);
+        resolve(!!e && e.type === "canplay");
+      };
+      const t = setTimeout(done, ms);
+      v.addEventListener("canplay", done);
+      v.addEventListener("error", done);
+    });
+  }
 
-    if (instant || !showing.getAttribute("src")) {
-      showing.src = src;
-      showing.classList.add("is-active");
-      next.classList.remove("is-active");
-      playSafe(showing);
-    } else {
-      next.src = src;
-      playSafe(next);
-      next.classList.add("is-active");
-      showing.classList.remove("is-active");
-      setTimeout(() => {
-        if (!showing.classList.contains("is-active")) unloadVideo(showing);
-      }, 1000);
-      front = 1 - front;
+  /* downloads and decodes a picture, so it appears whole */
+  function imageReady(src) {
+    const im = new Image();
+    im.referrerPolicy = "no-referrer";
+    im.src = src;
+    return im.decode().then(() => true, () => false);
+  }
+
+  /* the thin line at the top while a wallpaper is on its way; Customize
+     listens too (a spinner on the picked card) */
+  function syncLoading() {
+    const on = !!(loadingVideo || loadingImage);
+    if (wallEl.classList.contains("is-loading") === on) return;
+    wallEl.classList.toggle("is-loading", on);
+    document.dispatchEvent(new CustomEvent("atlas:wallpaper", { detail: { loading: on } }));
+  }
+
+  const slot = (el) => el.parentElement;
+  /* `el` comes up over `other`; `animate` plays the fade-and-settle */
+  function raise(el, other, animate) {
+    if (other && other !== el) slot(other).classList.remove("is-top");
+    const s = slot(el);
+    s.classList.add("is-top");
+    s.classList.remove("is-entering");
+    if (animate) {
+      void s.offsetWidth; // restart the animation
+      s.classList.add("is-entering");
     }
+    el.classList.add("is-active");
+  }
+
+  /* false when the wallpaper changed again before this one was ready */
+  async function showVideo(src, instant) {
+    if (shownVideo === src) return true;
+    if (loadingVideo === src) return false; // already on its way
+    clearTimeout(videoHideTimer);
+    const cur = layers[front];
+    const next = shownVideo ? layers[1 - front] : cur;
+    loadingVideo = src;
+    syncLoading();
+    next.src = src;
+    playSafe(next);
+    if (!instant) await videoReady(next);
+    if (loadingVideo !== src || !want || want.video !== src) {
+      if (loadingVideo === src) { loadingVideo = ""; syncLoading(); }
+      if (!next.classList.contains("is-active")) unloadVideo(next);
+      return false;
+    }
+    loadingVideo = "";
+    syncLoading();
+    shownVideo = src;
+    if (next !== cur) front = 1 - front;
+    raise(next, next === cur ? null : cur, !instant);
+    if (next !== cur) {
+      setTimeout(() => {
+        if (layers[front] === cur) return; // switched back meanwhile
+        cur.classList.remove("is-active");
+        unloadVideo(cur);
+      }, SETTLE);
+    }
+    return true;
   }
 
   function hideVideo() {
+    loadingVideo = "";
+    syncLoading();
     if (!shownVideo) return;
     shownVideo = "";
     layers.forEach((v) => v.classList.remove("is-active"));
     /* let the fade finish before dropping the frames */
-    setTimeout(() => {
-      if (!shownVideo) layers.forEach(unloadVideo);
+    clearTimeout(videoHideTimer);
+    videoHideTimer = setTimeout(() => {
+      if (!shownVideo && !loadingVideo) layers.forEach(unloadVideo);
+    }, 1000);
+  }
+
+  async function showImage(src, preview, instant) {
+    if (shownImage === src) return true;
+    if (loadingImage === src) return false;
+    clearTimeout(imageHideTimer);
+    const cur = imgs[imgFront];
+    const next = cur.classList.contains("is-active") ? imgs[1 - imgFront] : cur;
+    const stale = () => !want || want.image !== src || loadingImage !== src;
+    const bringIn = () => {
+      imgFront = imgs.indexOf(next);
+      raise(next, cur, !instant);
+      if (next !== cur) {
+        setTimeout(() => { if (imgs[imgFront] !== cur) cur.classList.remove("is-active"); }, SETTLE);
+      }
+    };
+    loadingImage = src;
+    syncLoading();
+    let shown = false;
+    /* blur-up: the preview first, if it comes quickly */
+    if (preview && preview !== src && (await imageReady(preview)) && !stale()) {
+      next.classList.add("is-preview");
+      next.src = preview;
+      bringIn();
+      shown = true;
+    }
+    const ok = await imageReady(src);
+    if (stale()) return false;
+    loadingImage = "";
+    syncLoading();
+    if (!ok && !shown) return false; // keep what's on screen
+    shownImage = src;
+    if (ok) next.src = src;
+    if (shown) requestAnimationFrame(() => next.classList.remove("is-preview"));
+    else {
+      next.classList.remove("is-preview");
+      bringIn();
+    }
+    return true;
+  }
+
+  function hideImages() {
+    loadingImage = "";
+    syncLoading();
+    if (!shownImage) return;
+    shownImage = "";
+    imgs.forEach((i) => i.classList.remove("is-active"));
+    clearTimeout(imageHideTimer);
+    imageHideTimer = setTimeout(() => {
+      if (shownImage || loadingImage) return;
+      imgs.forEach((i) => { i.removeAttribute("src"); i.classList.remove("is-preview"); });
     }, 1000);
   }
 
@@ -159,11 +286,18 @@
     const token = ++bgToken;
     let video = "";
     let image = "";
+    let preview = "";
     let fill = "";
 
     if (bg.mode === "color") fill = bg.color;
     else if (bg.mode === "gradient") fill = `linear-gradient(${bg.gradAngle}deg, ${bg.gradA}, ${bg.gradB})`;
-    else if (bg.mode === "upload" && bg.customId) {
+    else if (bg.mode === "online" && /^https:\/\//.test(bg.online.src)) {
+      if (bg.online.kind === "video") video = bg.online.src;
+      else {
+        image = bg.online.src;
+        if (/^https:\/\//.test(bg.online.thumb)) preview = bg.online.thumb;
+      }
+    } else if (bg.mode === "upload" && bg.customId) {
       const file = await uploadedMedia(bg.customId);
       if (token !== bgToken) return;
       if (file.kind === "video") video = file.url;
@@ -172,18 +306,32 @@
     /* nothing else to show (or the upload went missing): the live wallpaper */
     if (!video && !image && !fill) video = builtInFile();
 
-    if (fill) wpFill.style.background = fill;
-    wpFill.classList.toggle("is-active", !!fill);
-    if (image && wpImage.getAttribute("src") !== image) wpImage.src = image;
-    wpImage.classList.toggle("is-active", !!image);
-    if (video) showVideo(video, instant);
-    else hideVideo();
-
     const rate = Math.min(2, Math.max(0.25, (bg.speed || 100) / 100));
     layers.forEach((v) => {
       v.defaultPlaybackRate = rate; // survives a src change
       v.playbackRate = rate;
     });
+
+    want = { video, image };
+    const still = () => want.video === video && want.image === image;
+    /* a colour covers everything at once; otherwise it stays up until the
+       new picture is ready underneath */
+    if (fill) {
+      wpFill.style.background = fill;
+      wpFill.classList.add("is-active");
+      hideImages();
+      hideVideo();
+      return;
+    }
+    if (video) {
+      if (!(await showVideo(video, instant)) || !still()) return;
+      wpFill.classList.remove("is-active");
+      hideImages(); // fades out over the video, which is ready underneath
+    } else {
+      if (!(await showImage(image, preview, instant)) || !still()) return;
+      wpFill.classList.remove("is-active");
+      hideVideo();
+    }
   }
 
   /* pick a built-in wallpaper; also switches the background back to it.
@@ -200,8 +348,6 @@
     wpScheduling = false;
   }
   AS.app.setWallpaper = (id) => setWallpaper(id);
-  /* premium.js "Change by itself": like the schedule, not a pick by hand */
-  AS.app.autoWallpaper = (id) => { if (WALLPAPERS.some((w) => w.id === id) && id !== currentWp) setWallpaper(id, false, true); };
 
   /* --- wallpaper schedule (Customize > Background > Schedule) -----------
      Each rule says "from this moment, show this wallpaper". The rule whose
@@ -2863,6 +3009,24 @@
         run: () => window.AtlasQuickTools && AtlasQuickTools.openTasks(),
       },
       {
+        id: "sys:planner",
+        title: "Plan My Day",
+        description: "AI plan for today from your tasks, calendar and habits",
+        category: "Atlas",
+        keywords: ["plan", "planner", "day", "schedule", "today", "ai", "agenda", "timeline", "time blocking"],
+        mark: "✦",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("planner"),
+      },
+      {
+        id: "sys:calendar",
+        title: "Calendar",
+        description: "Today and this week from Google Calendar",
+        category: "Atlas",
+        keywords: ["calendar", "google calendar", "events", "meetings", "agenda", "week", "today"],
+        mark: "▦",
+        run: () => window.AtlasQuickTools && AtlasQuickTools.open("calendar"),
+      },
+      {
         id: "sys:optimize",
         title: "Optimize Tabs",
         description: "Close duplicates, sleep tabs, auto optimize",
@@ -3748,7 +3912,7 @@
     store.get(["wallpaper", "workspace", "usage", "launcherTabs", HISTORY_KEY, WP_MANUAL_KEY, LAYOUT_KEY]),
     AS.ready,
     V ? V.ready : null,
-    window.AtlasPremium ? AtlasPremium.ready : null,
+    window.AtlasLibrary ? AtlasLibrary.ready : null,
   ]).then(([s]) => {
     /* the saved layout replaces the config.js defaults; a first launch, or
        anything unreadable, falls back to them */
@@ -3774,7 +3938,6 @@
     }
     applyBackground(true);
     applyWallpaperSchedule(true); // a scheduled change away from a colour / image
-    if (window.AtlasPremium) AtlasPremium.start();
     $("q").focus();
     /* back in, if the user chose to stay unlocked for the session */
     if (V) V.restore(AS.get().privacy.stay);

@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { HttpError } from "../lib/http-error.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requirePro } from "../middleware/auth.js";
 import { askGemini, toContents } from "../services/gemini.js";
+import { PLAN_SCHEMA, PLAN_SYSTEM, planPrompt, readDay, readPlan } from "../services/planner.js";
 import { claimAiMessage, getAiUsage, releaseAiMessage } from "../services/usage.js";
 
 export const aiRouter = Router();
@@ -28,6 +29,37 @@ aiRouter.post("/ai/chat", requireAuth, async (req, res) => {
     throw err;
   }
   res.json({ reply, usage: await getAiUsage(req.user) });
+});
+
+/* POST /ai/plan  (Pro; counts as one assistant message)
+   body  { date, weekday, from, to, focus: { work, short }, tasks, events,
+           reminders, habits, note }  — see services/planner.js
+   reply { plan: { summary, blocks: [{ start, end, title, kind, taskId }],
+           unplanned }, usage } */
+aiRouter.post("/ai/plan", requireAuth, requirePro, async (req, res) => {
+  const day = readDay(req.body);
+
+  if (!(await claimAiMessage(req.user))) {
+    throw new HttpError(429, "You've used today's assistant messages. The planner will be back tomorrow.", {
+      code: "quota_exceeded",
+      usage: await getAiUsage(req.user),
+    });
+  }
+
+  let plan;
+  try {
+    const text = await askGemini([{ role: "user", parts: [{ text: planPrompt(day) }] }], {
+      system: PLAN_SYSTEM,
+      schema: PLAN_SCHEMA,
+      maxTokens: 4096,
+      temperature: 0.4,
+    });
+    plan = readPlan(text, day);
+  } catch (err) {
+    await releaseAiMessage(req.user); // failed plans don't count
+    throw err;
+  }
+  res.json({ plan, usage: await getAiUsage(req.user) });
 });
 
 aiRouter.get("/ai/usage", requireAuth, async (req, res) => {

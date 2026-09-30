@@ -16,6 +16,8 @@
         it, and its right-click opens these settings.
      ❝  Daily quote — settings.widgets.quote + quotes (quote.js shows it)
      ◷  Focus — the focus timer (focus.js draws the view)
+     ▦  Calendar — the Google Calendar agenda (calendar.js, Pro)
+     ✦  Day planner — the AI plan for today (planner.js, Pro)
    Notes and goals live in "qt:tasks"; habits (a third tab there) in
    "qt:habits".                                                           */
 
@@ -73,6 +75,8 @@
     puzzle: '<path d="M9 4.5h3a1.5 1.5 0 0 1 3 0h3.5V9a1.5 1.5 0 0 1 0 3v6.5H14a1.5 1.5 0 0 0-3 0H5.5V14a1.5 1.5 0 0 0 0-3V4.5z"/>',
     list: '<path d="M9 7h11M9 12h11M9 17h11"/><circle cx="4.8" cy="7" r=".6"/><circle cx="4.8" cy="12" r=".6"/><circle cx="4.8" cy="17" r=".6"/>',
     heart: '<path d="M12 19.5s-7-4.3-7-9.5a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.2-7 9.5-7 9.5z"/>',
+    calendar: '<rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/><path d="M8 14h2M12 14h4M8 17h4"/>',
+    planner: '<path d="M4.5 6.5h7M4.5 12h5M4.5 17.5h7"/><path d="M17 4.5l1.1 3.4 3.4 1.1-3.4 1.1L17 13.5l-1.1-3.4-3.4-1.1 3.4-1.1z"/>',
     share: '<circle cx="17.5" cy="6" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17.5" cy="18" r="2.5"/><path d="m8.7 10.8 6.6-3.6M8.7 13.2l6.6 3.6"/>',
   };
 
@@ -111,9 +115,13 @@
     faq: ["FAQs", () => renderFaq()],
     changelog: ["Changelog", () => renderChangelog()],
     focus: ["Focus", () => window.AtlasFocus && AtlasFocus.render({ body: P.body, sub: P.sub, switchRow, section, show })],
+    calendar: ["Calendar", () => window.AtlasCalendar && AtlasCalendar.render({ body: P.body, sub: P.sub, section, show, upgradeNote })],
+    planner: ["Day planner", () => window.AtlasPlanner && AtlasPlanner.render({ body: P.body, sub: P.sub, section, show, upgradeNote })],
   };
+  /* the views drawn by other files, told when they stop being shown */
+  const detachViews = () => [window.AtlasFocus, window.AtlasCalendar, window.AtlasPlanner].forEach((m) => m && m.detach());
   function show(v) {
-    if (window.AtlasFocus) AtlasFocus.detach();
+    detachViews();
     view = VIEWS[v] ? v : "home";
     const [title, render] = VIEWS[view];
     P.panel.setAttribute("aria-label", title);
@@ -134,7 +142,7 @@
   function closeAll(except) {
     if (except !== P.panel) {
       P.panel.hidden = true;
-      if (window.AtlasFocus) AtlasFocus.detach();
+      detachViews();
       toolsBtn.classList.remove("is-open");
       toolsBtn.setAttribute("aria-expanded", "false");
     }
@@ -201,14 +209,15 @@
     const F = window.AtlasFocus;
     P.body.append(h("div", { class: "qt-grid" },
       F ? tile(I.zen, "Focus", F.tile(), () => show("focus"), F.isRunning() ? "is-on" : "") : null,
+      window.AtlasPlanner ? tile(I.planner, "Day planner", AtlasPlanner.tile(), () => show("planner"), AtlasPlanner.current().now ? "is-on" : "") : null,
+      window.AtlasCalendar ? tile(I.calendar, "Calendar", AtlasCalendar.tile(), () => show("calendar")) : null,
       window.AtlasStats ? tile(I.chart, "Stats", "Your time and progress", () => { closeAll(); AtlasStats.open(); }) : null,
       tile(I.tasks, "Notes & Goals", tasks.length ? done + " of " + tasks.length + " done" + (dueN ? " · " + dueN + " due" : "") : "Plan and track", () => show("tasks")),
       hasTabs ? tile(I.bolt, "Optimize", AS.get().optimize.auto ? "Auto optimize on" : "Tidy your tabs", () => show("optimize")) : null,
       tile(I.block, "Site blocker", bl.on ? "On · " + bl.sites.length + " site" + (bl.sites.length === 1 ? "" : "s") : "Off", () => show("blocker"), bl.on ? "is-on" : ""),
       window.AtlasQuote ? tile(I.quote, "Daily quote", q.show ? (q.every === "day" ? "New one daily" : "New one each tab") : "Hidden", () => show("quote")) : null,
       hasTabs ? tile(I.tabs, "Tab manager", sessions.length ? sessions.length + " saved session" + (sessions.length === 1 ? "" : "s") : "Save and reopen tabs", () => show("tabmanager")) : null,
-      hasChrome && chrome.permissions ? tile(I.puzzle, "Extensions", "Turn them on and off", () => show("extensions")) : null),
-    footer());
+      hasChrome && chrome.permissions ? tile(I.puzzle, "Extensions", "Turn them on and off", () => show("extensions")) : null));
   }
 
   /* ================= NOTES & GOALS ===================================== */
@@ -1116,7 +1125,9 @@
       h("button", { type: "button", class: "qt-chip qt-ext-all", text: "Open Chrome's extensions page", onclick: () => chrome.tabs.create({ url: "chrome://extensions/" }) }));
   }
 
-  /* ================= ABOUT: the footer, FAQs and changelog ============== */
+  /* ================= ABOUT: the footer, FAQs and changelog ==============
+     The footer is shown at the bottom of Customize (customize.js asks for
+     it); FAQs and Changelog still open here, in Quick tools. */
   const ABOUT = typeof ABOUT_CONFIG !== "undefined" ? ABOUT_CONFIG : {};
   const manifest = hasChrome && chrome.runtime.getManifest ? chrome.runtime.getManifest() : { name: "Atlas New Tab", version: "" };
   const storeUrl = () => ABOUT.storeUrl ||
@@ -1128,34 +1139,50 @@
   };
   const openUrl = (url) => (hasTabs ? chrome.tabs.create({ url }) : window.open(url, "_blank", "noopener"));
 
-  function footer() {
+  /* `leave` runs before FAQs / Changelog open here (Customize closes) */
+  const CREDIT = { name: "Muhammad Aqib", url: "https://muhammadaqibawan.netlify.app/" };
+  const ARROW = '<path d="M8 16 16 8M9.5 8H16v6.5"/>';
+  function footer(leave) {
+    const go = (v) => { if (typeof leave === "function") leave(); open(v); };
     const status = h("p", { class: "qt-foot-status", role: "status" });
     const say = (text) => { status.textContent = text; setTimeout(() => { if (status.textContent === text) status.textContent = ""; }, 2500); };
-    const big = (icon, label, onclick) => h("button", { type: "button", class: "qt-foot-btn", onclick }, h("span", { html: svg(icon, 14) }), h("span", { text: label }));
+    const act = (icon, label, hint, onclick) => h("button", { type: "button", class: "qt-foot-btn", onclick },
+      h("span", { class: "qt-foot-ico", html: svg(icon, 15) }),
+      h("span", { class: "qt-foot-lbl" }, h("b", { text: label }), h("small", { text: hint })));
     const link = (label, onclick) => h("button", { type: "button", class: "qt-foot-link", text: label, onclick });
     const name = (manifest.name || "Atlas New Tab").replace(/\s+-\s+.*$/, "");
+    const logo = hasChrome && chrome.runtime.getURL ? chrome.runtime.getURL("assets/icons/icon-48.png") : "assets/icons/icon-48.png";
     return h("footer", { class: "qt-foot" },
-      h("div", { class: "qt-foot-btns" },
-        big(I.chat, "Feedback", () => {
-          const email = ABOUT.feedbackEmail || "";
-          const subject = encodeURIComponent(name + " feedback (v" + manifest.version + ")");
-          if (email) window.location.href = "mailto:" + email + "?subject=" + subject;
-        }),
-        big(I.heart, "Rate us", () => openUrl(storeUrl() + (ABOUT.storeUrl ? "" : "/reviews"))),
-        big(I.share, "Share", async () => {
-          const data = { title: name, text: "A calm new tab with live wallpapers, focus tools and more.", url: storeUrl() };
-          try {
-            if (navigator.share) { await navigator.share(data); return; }
-          } catch (e) { if (e && e.name === "AbortError") return; }
-          try { await navigator.clipboard.writeText(data.url); say("Link copied — paste it anywhere."); } catch { say(data.url); }
-        })),
-      h("div", { class: "qt-foot-card" },
-        h("nav", { class: "qt-foot-links", "aria-label": "About" },
-          link("FAQs", () => show("faq")),
-          link("Changelog", () => show("changelog")),
-          privacyUrl() ? link("Privacy Policy", () => openUrl(privacyUrl())) : null,
-          AS.exportSettings ? link("Export Backup", () => { AS.exportSettings(); say("Backup saved to your downloads."); }) : null),
-        h("p", { class: "qt-foot-ver", text: name + " v" + manifest.version })),
+      h("div", { class: "qt-foot-hero" },
+        h("div", { class: "qt-foot-brand" },
+          h("img", { class: "qt-foot-logo", src: logo, alt: "" }),
+          h("div", { class: "qt-foot-id" },
+            h("strong", { text: name }),
+            h("small", { text: "A calm new tab, made with care" })),
+          h("span", { class: "qt-foot-ver", text: "v" + manifest.version })),
+        h("div", { class: "qt-foot-btns" },
+          act(I.chat, "Feedback", "Tell us", () => {
+            const email = ABOUT.feedbackEmail || "";
+            const subject = encodeURIComponent(name + " feedback (v" + manifest.version + ")");
+            if (email) window.location.href = "mailto:" + email + "?subject=" + subject;
+          }),
+          act(I.heart, "Rate us", "5 stars?", () => openUrl(storeUrl() + (ABOUT.storeUrl ? "" : "/reviews"))),
+          act(I.share, "Share", "With friends", async () => {
+            const data = { title: name, text: "A calm new tab with live wallpapers, focus tools and more.", url: storeUrl() };
+            try {
+              if (navigator.share) { await navigator.share(data); return; }
+            } catch (e) { if (e && e.name === "AbortError") return; }
+            try { await navigator.clipboard.writeText(data.url); say("Link copied — paste it anywhere."); } catch { say(data.url); }
+          }))),
+      h("nav", { class: "qt-foot-links", "aria-label": "About" },
+        link("FAQs", () => go("faq")),
+        link("Changelog", () => go("changelog")),
+        privacyUrl() ? link("Privacy", () => openUrl(privacyUrl())) : null,
+        AS.exportSettings ? link("Export backup", () => { AS.exportSettings(); say("Backup saved to your downloads."); }) : null),
+      h("a", { class: "qt-foot-credit", href: CREDIT.url, target: "_blank", rel: "noopener" },
+        h("span", { text: "Built by" }),
+        h("strong", { text: CREDIT.name }),
+        h("span", { class: "qt-foot-credit-go", html: svg(ARROW, 12) })),
       status);
   }
 
@@ -1381,6 +1408,7 @@
     if (view === "focus" && el && P.panel.contains(el) && /^(INPUT|SELECT)$/.test(el.tagName)) return;
     show(view);
   });
+  if (window.AtlasCalendar) AtlasCalendar.on(() => { if (!P.panel.hidden && view === "home") show("home"); });
   if (window.AtlasMinimal) AtlasMinimal.on(() => { if (!P.panel.hidden && (view === "home" || view === "minimal")) show(view); });
 
   window.AtlasQuickTools = {
@@ -1389,6 +1417,16 @@
     openHabits: () => Promise.all([ready, habitsReady]).then(() => { tab = "habits"; open("tasks"); }),
     habits: () => habitsReady.then(() => habits),
     upgradeNote,
+    footer,
+    /* for the Day planner's Complete button */
+    isTaskDone: (id) => allTasks().some((t) => t.id === id && t.done),
+    completeTask: (id) => ready.then(() => {
+      const t = allTasks().find((x) => x.id === id);
+      if (!t || t.done) return;
+      t.done = true;
+      t.doneAt = Date.now();
+      return save();
+    }),
     /* the same notes, for Customize > Notes */
     notes: {
       ready,

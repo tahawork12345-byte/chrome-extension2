@@ -7,12 +7,13 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <!-- LIVE WALLPAPER (two layers for crossfade) -->
+    <!-- WALLPAPER (two layers each for crossfades; see app.js) -->
     <div class="wallpaper">
-      <video class="wp-layer is-active" id="videoA" muted loop playsinline preload="auto"></video>
-      <video class="wp-layer" id="videoB" muted loop playsinline preload="auto"></video>
-      <!-- custom backgrounds: an uploaded image, or a solid colour / gradient -->
-      <img class="wp-image" id="wpImage" alt="" />
+      <div class="wp-slot is-top"><video class="wp-layer is-active" id="videoA" muted loop playsinline preload="auto"></video></div>
+      <div class="wp-slot"><video class="wp-layer" id="videoB" muted loop playsinline preload="auto"></video></div>
+      <!-- images (online or uploaded), also two layers; a solid colour / gradient above -->
+      <div class="wp-slot is-img"><img class="wp-image" id="wpImage" alt="" referrerpolicy="no-referrer" /></div>
+      <div class="wp-slot is-img"><img class="wp-image" id="wpImageB" alt="" referrerpolicy="no-referrer" /></div>
       <div class="wp-fill" id="wpFill"></div>
       <div class="wp-veil"></div>
     </div>
@@ -235,13 +236,15 @@
     <script src="account.js"></script>
     <script src="sync.js"></script>
     <script src="customize.js"></script>
-    <script src="premium.js"></script>
+    <script src="library.js"></script>
     <script src="app.js"></script>
     <script src="reminders.js"></script>
     <script src="zen.js"></script>
     <script src="minimal.js"></script>
     <script src="quote.js"></script>
     <script src="focus.js"></script>
+    <script src="calendar.js"></script>
+    <script src="planner.js"></script>
     <script src="quicktools.js"></script>
     <script src="stats.js"></script>
     <script src="translate.js"></script>

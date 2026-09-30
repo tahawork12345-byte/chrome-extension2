@@ -34,8 +34,17 @@ export const env = {
   },
   cronSecret: process.env.CRON_SECRET || "",
 
-  /* where the premium wallpapers live (src/data/wallpapers.js), no trailing slash */
-  wallpaperCdn: (process.env.WALLPAPER_CDN || "").replace(/\/+$/, ""),
+  /* the online wallpaper sources (routes/wallpapers.routes.js), each on
+     or off: Pexels (live videos, searched here with the key) and
+     Wallhaven (still images, the extension calls WALLHAVEN_URL itself) */
+  pexels: {
+    on: process.env.PEXELS === "true",
+    key: process.env.PEXELS_API_KEY || "",
+  },
+  wallhaven: {
+    on: process.env.WALLHAVEN === "true",
+    url: process.env.WALLHAVEN_URL || "https://wallhaven.cc/api/v1/search",
+  },
 
   paddle: {
     env: process.env.PADDLE_ENV === "production" ? "production" : "sandbox",

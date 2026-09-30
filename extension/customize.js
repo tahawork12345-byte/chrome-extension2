@@ -34,7 +34,7 @@
       font: "default",
     },
     background: {
-      mode: "video", // video | upload | color | gradient
+      mode: "video", // video | online | upload | color | gradient
       speed: 100,
       color: "#14141a",
       gradA: "#1d2b4a",
@@ -42,6 +42,8 @@
       gradAngle: 135,
       customId: 0,
       customName: "",
+      /* the online library's pick (library.js): kind "image" | "video" */
+      online: { id: "", kind: "", src: "", thumb: "", source: "", credit: "", creditUrl: "", link: "" },
       brightness: 100,
       saturate: 100,
       blur: 0,
@@ -51,9 +53,6 @@
          wallpaper, enabled }] (rules as in schedule.js); app.js applies them */
       scheduleOn: true,
       schedule: [],
-      /* Atlas Pro: switch the live wallpaper by itself, by "time" of day
-         or by the "weather" (premium.js), or "off" */
-      auto: "off",
     },
     lighting: {
       trace: true,
@@ -319,7 +318,6 @@
     next.quotes.custom = normalizeQuotes(over && over.quotes && over.quotes.custom);
     if (!["builtin", "mine", "both"].includes(next.widgets.quote.source)) next.widgets.quote.source = "both";
     if (!["day", "tab"].includes(next.widgets.quote.every)) next.widgets.quote.every = "day";
-    if (!["off", "time", "weather"].includes(next.background.auto)) next.background.auto = "off";
     const f = next.focus;
     [["work", 1, 180], ["short", 1, 60], ["long", 1, 90], ["every", 1, 12]].forEach(([k, min, max]) => {
       f[k] = Math.round(num(f[k], min, max, DEFAULTS.focus[k]));
@@ -810,8 +808,10 @@
   };
 
   let conds = []; // [element, test]
+  let painters = []; // controls that redraw themselves from the settings
   function syncConditions() {
     conds.forEach(([el, test]) => (el.hidden = !test(settings)));
+    painters.forEach((fn) => fn());
   }
   function row(label, control, opts = {}) {
     const el = h("div", { class: "cz-row" + (opts.stack ? " is-stack" : "") },
@@ -886,6 +886,7 @@
       }));
     });
     paint();
+    painters.push(paint);
     return row(label, wrap, Object.assign({ stack: !!(opts && opts.stack) }, opts));
   }
 
@@ -1005,16 +1006,17 @@
         const isMode = (m) => (s) => s.background.mode === m;
         return [
           group("Source",
-            segRow("", "background.mode", [["video", "Live"], ["upload", "My file"], ["color", "Colour"], ["gradient", "Gradient"]],
+            segRow("", "background.mode", [["video", "Built-in"], ["online", "Online"], ["upload", "My file"], ["color", "Colour"], ["gradient", "Gradient"]],
               { stack: true, after: (m) => { if (m === "upload" && !settings.background.customId) filePicker.click(); } }),
             row("", wallpaperButtons(), { stack: true, when: isMode("video") }),
+            row("", note("Pick one from the Online library below."), { stack: true, when: (s) => s.background.mode === "online" && !s.background.online.src }),
             rangeRow("Playback speed", "background.speed", 25, 200, 5, "%", { when: (s) => s.background.mode !== "color" && s.background.mode !== "gradient" }),
             uploadRow(isMode("upload")),
             colorRow("Colour", "background.color", { when: isMode("color") }),
             colorRow("From", "background.gradA", { when: isMode("gradient") }),
             colorRow("To", "background.gradB", { when: isMode("gradient") }),
             rangeRow("Angle", "background.gradAngle", 0, 360, 5, "°", { when: isMode("gradient") })),
-          premiumGroup(),
+          libraryGroup(),
           wpScheduleGroup(),
           group("Adjust",
             rangeRow("Brightness", "background.brightness", 20, 180, 1, "%"),
@@ -1447,6 +1449,8 @@
       if (btn.isConnected) { btn.disabled = false; btn.textContent = was; }
     }
   }
+  /* Google's popup opens over the panel, no bigger than it */
+  const signInHere = () => Acc.signIn({ anchor: panel.getBoundingClientRect() });
   const accMsg = () => h("p", { class: "cz-msg", hidden: true });
   const say = (msg, text) => { msg.textContent = text; msg.classList.remove("is-error"); msg.hidden = false; };
 
@@ -1465,7 +1469,7 @@
       const msg = accMsg();
       const btn = h("button", {
         type: "button", class: "cz-btn cz-google",
-        onclick: () => accBusy(btn, "Signing in…", msg, () => Acc.signIn()),
+        onclick: () => accBusy(btn, "Signing in…", msg, () => signInHere()),
       });
       btn.innerHTML = GOOGLE_G;
       btn.append(" Sign in with Google");
@@ -1496,7 +1500,7 @@
       type: "button", class: "cz-btn", text: "Switch account",
       onclick: () => accBusy(switchBtn, "Opening Google…", gMsg, async () => {
         const before = Acc.user();
-        try { await Acc.signIn(); } catch (err) {
+        try { await signInHere(); } catch (err) {
           /* cancelled: stay signed in as before */
           if (before) return say(gMsg, "Still signed in as " + before.email + ".");
           throw err;
@@ -2203,53 +2207,194 @@
       !has && optional ? h("span", { class: "cz-file", text: "Uses the normal image" }) : null), { stack: true });
   }
 
-  /* the premium library (premium.js) and "Change by itself" — Atlas Pro */
-  let premiumAsked = 0;
-  function premiumGroup() {
-    const Pm = window.AtlasPremium;
-    if (!Pm) return null;
-    /* opening the tab looks for new wallpapers, at most once a minute */
-    if (Date.now() - premiumAsked > 60000) {
-      premiumAsked = Date.now();
-      Pm.refresh(true);
+  /* the online library (library.js): Wallhaven stills and Pexels videos,
+     shown from their own sites. The results repaint in place (libPaint),
+     so the search box keeps its focus while they load. */
+  let libPaint = null;
+  let libHooked = false;
+  let libPending = ""; // the card whose wallpaper is on its way (app.js "atlas:wallpaper")
+  let libPendingTimer = 0;
+  function libDone() {
+    clearTimeout(libPendingTimer);
+    libPending = "";
+    body.querySelectorAll(".cz-pwp.is-loading").forEach((b) => b.classList.remove("is-loading"));
+  }
+  const upsellIn = (msg, text) => {
+    msg.textContent = "";
+    const QT = window.AtlasQuickTools;
+    if (QT && QT.upgradeNote) msg.append(QT.upgradeNote(text));
+  };
+  const extLink = (href, text) =>
+    href ? h("a", { href, target: "_blank", rel: "noopener noreferrer", text }) : text;
+
+  function libraryGroup() {
+    const L = window.AtlasLibrary;
+    if (!L) return null;
+    /* library.js loads after this file, so listen from here, once */
+    if (!libHooked) {
+      libHooked = true;
+      L.on(() => { if (isOpen() && activeTab === "background" && libPaint) libPaint(); });
+      document.addEventListener("atlas:wallpaper", (e) => { if (!e.detail.loading) libDone(); });
     }
-    const pro = Pm.isPro();
-    const items = Pm.items();
-    const current = app.currentWallpaper ? app.currentWallpaper() : null;
+    if (!L.state()) L.browse("all", "");
+    const pro = L.isPro();
+    const bg = settings.background;
     const msg = h("div", { class: "cz-pwp-msg" });
-    const upsell = (text) => {
-      msg.textContent = "";
-      const QT = window.AtlasQuickTools;
-      if (QT && QT.upgradeNote) msg.append(QT.upgradeNote(text));
+
+    const chips = h("div", { class: "cz-lib-chips", role: "tablist", "aria-label": "Wallpaper kind" });
+    /* a mouse wheel scrolls the row sideways */
+    chips.addEventListener("wheel", (e) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || chips.scrollWidth <= chips.clientWidth) return;
+      e.preventDefault();
+      chips.scrollLeft += e.deltaY;
+    }, { passive: false });
+    /* fade an edge only while there's more that way */
+    const edges = () => {
+      chips.classList.toggle("at-start", chips.scrollLeft <= 1);
+      chips.classList.toggle("at-end", chips.scrollLeft + chips.clientWidth >= chips.scrollWidth - 1);
     };
-    const grid = h("div", { class: "cz-pwps" });
-    items.forEach((w) => {
-      const id = Pm.PREFIX + w.id;
-      const locked = !pro || !w.video;
-      grid.append(h("button", {
-        type: "button", class: "cz-pwp" + (id === current && settings.background.mode === "video" ? " is-on" : "") + (locked ? " is-locked" : ""),
-        "data-id": id, title: w.label + (w.category ? " · " + w.category : "") + (locked ? " — Atlas Pro" : ""),
-        onclick: () => {
-          if (locked) return upsell("“" + w.label + "” and the whole 4K library — with new wallpapers added regularly — come with Atlas Pro.");
-          if (app.setWallpaper) app.setWallpaper(id);
-          grid.querySelectorAll(".cz-pwp").forEach((b) => b.classList.toggle("is-on", b.dataset.id === id));
-        },
-      },
-      h("img", { src: w.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }),
-      h("span", { class: "cz-pwp-name", text: w.label }),
-      Pm.isNew(w) ? h("span", { class: "cz-pwp-new", text: "New" }) : null,
-      locked ? h("span", { class: "cz-pwp-lock", "aria-hidden": "true", text: "🔒" }) : null));
+    chips.addEventListener("scroll", edges, { passive: true });
+    const about = note("");
+
+    const search = h("input", {
+      class: "cz-text", type: "search", placeholder: "Search wallpapers…", spellcheck: "false",
+      "aria-label": "Search wallpapers", value: (L.state() || {}).q || "",
     });
-    const autoRow = pro
-      ? segRow("Change by itself", "background.auto", [["off", "Off"], ["time", "Time of day"], ["weather", "Weather"]], { stack: true })
-      : row("Change by itself", h("button", { type: "button", class: "cz-btn", text: "Time of day or weather 🔒", onclick: () => upsell("Let the wallpaper follow the time of day or the weather outside — part of Atlas Pro.") }), { stack: true });
-    return group("Premium library",
-      items.length
-        ? note(pro ? "4K live wallpapers, with new ones added regularly." : "4K live wallpapers, with new ones added regularly — part of Atlas Pro. The built-in wallpapers above stay free.")
-        : note("The library is loading, or isn't set up on the server yet (WALLPAPER_CDN)."),
-      items.length ? grid : null,
-      autoRow,
-      pro && settings.background.auto === "weather" ? note("Uses the weather card's location. Tag your own wallpapers in config.js to include them.") : null,
+    let timer = 0;
+    const run = () => {
+      clearTimeout(timer);
+      const st = L.state();
+      const q = search.value.trim();
+      if (!st || st.q !== q) L.browse(st ? st.filter : "all", q);
+    };
+    search.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 500); });
+    search.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
+
+    const pick = (it) => {
+      if (!it.src) return upsellIn(msg, "Live 4K video wallpapers come with Atlas Pro.");
+      if (bg.mode === "online" && bg.online.id === it.key) return; // already on screen
+      libDone();
+      libPending = it.key;
+      /* the wallpaper may take a moment; if it never says, stop spinning */
+      libPendingTimer = setTimeout(libDone, 20000);
+      grid.querySelectorAll(".cz-pwp").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.key === it.key);
+        b.classList.toggle("is-loading", b.dataset.key === it.key);
+      });
+      set("background.online", {
+        id: it.key, kind: it.kind, src: it.src, thumb: it.thumb, source: it.source,
+        credit: it.credit, creditUrl: it.creditUrl, link: it.link,
+      });
+      set("background.mode", "online");
+      paintNow();
+    };
+    const card = (it) => {
+      const locked = !it.src;
+      const live = it.kind === "video";
+      const size = it.width && it.height ? it.width + "×" + it.height : "";
+      const badge = live ? "Live" : it.width >= 3840 ? "4K" : "";
+      const title = (live ? "Video" + (it.credit ? " by " + it.credit : "") + " on Pexels" : "Wallhaven" + (size ? " · " + size : "")) + (locked ? " — Atlas Pro" : "");
+      /* the star: saves it to Favourites, which come first */
+      const star = h("button", {
+        type: "button", class: "cz-pwp-fav",
+        onclick: (e) => {
+          e.stopPropagation();
+          const on = L.toggleFav(it);
+          star.classList.remove("is-pop");
+          void star.offsetWidth;
+          star.classList.add("is-pop");
+          paintFav(el, on);
+        },
+      });
+      const el = h("div", {
+        class: "cz-pwp" + (bg.mode === "online" && bg.online.id === it.key ? " is-on" : "") + (locked ? " is-locked" : "") +
+          (libPending === it.key ? " is-loading" : ""),
+        "data-key": it.key,
+      },
+      h("img", { src: it.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }),
+      h("span", { class: "cz-pwp-name", text: live ? (it.credit ? "by " + it.credit : "Pexels") : size }),
+      badge ? h("span", { class: "cz-pwp-new", text: badge }) : null,
+      locked ? h("span", { class: "cz-pwp-lock", "aria-hidden": "true", text: "🔒" }) : null,
+      h("button", { type: "button", class: "cz-pwp-hit", title, "aria-label": title, onclick: () => pick(it) }),
+      star);
+      paintFav(el, L.isFav(it.key));
+      return el;
+    };
+    function paintFav(el, on) {
+      el.classList.toggle("is-fav", on);
+      const star = el.querySelector(".cz-pwp-fav");
+      star.textContent = on ? "★" : "☆";
+      star.title = on ? "Remove from Favourites" : "Add to Favourites";
+      star.setAttribute("aria-label", star.title);
+      star.setAttribute("aria-pressed", String(on));
+    }
+
+    const grid = h("div", { class: "cz-pwps" });
+    const status = h("p", { class: "cz-note" });
+    const moreBtn = h("button", { type: "button", class: "cz-btn", text: "Load more", onclick: () => L.more() });
+    const paint = () => {
+      const st = L.state();
+      if (!st) return;
+      /* only the kinds whose source the server has on; the row keeps its
+         scroll, and brings the chosen kind into view */
+      const scrolled = chips.scrollLeft;
+      chips.textContent = "";
+      L.filters().forEach((f) => chips.append(h("button", {
+        type: "button", class: "cz-lib-chip" + (f.id === st.filter ? " is-on" : ""), role: "tab",
+        "aria-selected": String(f.id === st.filter), text: f.label,
+        onclick: () => { const cur = L.state(); L.browse(f.id, cur ? cur.q : ""); },
+      })));
+      chips.hidden = !chips.children.length;
+      chips.scrollLeft = scrolled;
+      const on = chips.querySelector(".is-on");
+      if (on && (on.offsetLeft < chips.scrollLeft || on.offsetLeft + on.offsetWidth > chips.scrollLeft + chips.clientWidth)) {
+        chips.scrollTo({ left: on.offsetLeft - chips.clientWidth / 2 + on.offsetWidth / 2, behavior: "smooth" });
+      }
+      requestAnimationFrame(edges);
+      const src = L.sources();
+      about.textContent = !src ? ""
+        : [src.wallhaven ? "4K stills from Wallhaven" : "", src.pexels ? "live videos from Pexels" + (pro ? "" : " (Atlas Pro)") : ""]
+          .filter(Boolean).join(" and ").replace(/^./, (c) => c.toUpperCase()) + (src.wallhaven || src.pexels ? ", shown straight from their sites." : "");
+      about.hidden = !about.textContent;
+      const keys = st.items.map((i) => i.key).join("|");
+      if (keys !== grid.dataset.keys) {
+        grid.dataset.keys = keys;
+        grid.textContent = "";
+        st.items.forEach((it) => grid.append(card(it)));
+      } else {
+        grid.querySelectorAll(".cz-pwp").forEach((c) => paintFav(c, L.isFav(c.dataset.key)));
+      }
+      const errors = [st.still.error, st.live.error].filter(Boolean);
+      status.textContent = st.loading ? "Loading…"
+        : errors.length ? errors.join(" ")
+        : !st.items.length ? "Nothing found. Try another search." : "";
+      status.hidden = !status.textContent;
+      moreBtn.hidden = st.loading || !st.items.length || !(st.still.more || st.live.more);
+    };
+    libPaint = () => { if (grid.isConnected) paint(); };
+    paint();
+
+    /* credit for the one on screen (the Pexels terms ask for it) */
+    const now = h("p", { class: "cz-note" });
+    function paintNow() {
+      const o = bg.online;
+      now.textContent = "";
+      now.hidden = !(bg.mode === "online" && o.src);
+      if (now.hidden) return;
+      now.append("On screen: ", ...(o.kind === "video"
+        ? [extLink(o.link, "video"), ...(o.credit ? [" by ", extLink(o.creditUrl, o.credit)] : []), " on ", extLink("https://www.pexels.com", "Pexels")]
+        : [extLink(o.link, "wallpaper"), " from ", extLink("https://wallhaven.cc", "Wallhaven")]));
+    }
+    paintNow();
+
+    return group("Online library",
+      about,
+      chips,
+      search,
+      now,
+      grid,
+      status,
+      h("div", { class: "cz-btns" }, moreBtn),
       msg);
   }
 
@@ -2258,7 +2403,7 @@
     const wrap = h("div", { class: "cz-wps" });
     const list = typeof WALLPAPERS !== "undefined" ? WALLPAPERS : [];
     const current = app.currentWallpaper ? app.currentWallpaper() : null;
-    list.filter((wp) => !wp.premium).forEach((wp) => {
+    list.forEach((wp) => {
       wrap.append(h("button", {
         type: "button", class: "cz-wp" + (wp.id === current ? " is-on" : ""), "data-id": wp.id, text: wp.label,
         onclick: () => {
@@ -2334,10 +2479,44 @@
       replace(next);
     },
   });
+  /* top of the panel: Sign in with Google, or who is signed in (opens
+     the Account tab) */
+  const headAcc = h("div", { class: "cz-head-acc" });
+  function paintHeadAcc() {
+    headAcc.textContent = "";
+    headAcc.hidden = !Acc || !Acc.configured();
+    if (headAcc.hidden) return;
+    const user = Acc.user();
+    if (!user) {
+      const btn = h("button", {
+        type: "button", class: "cz-head-google", title: "Sign in with Google",
+        onclick: async () => {
+          btn.disabled = true;
+          try { await signInHere(); } catch { switchTab("account"); } finally { if (btn.isConnected) btn.disabled = false; }
+        },
+      });
+      btn.innerHTML = GOOGLE_G;
+      btn.append(h("span", { text: "Sign in with Google" }));
+      headAcc.append(btn);
+      return;
+    }
+    const name = user.name || user.email || "";
+    headAcc.append(h("button", {
+      type: "button", class: "cz-head-user", title: user.email || name, translate: "no",
+      onclick: () => switchTab("account"),
+    },
+      user.avatarUrl
+        ? h("img", { class: "cz-head-av", src: user.avatarUrl, alt: "", referrerpolicy: "no-referrer" })
+        : h("span", { class: "cz-head-av", "aria-hidden": "true", text: (name || "?")[0].toUpperCase() }),
+      h("span", { class: "cz-head-name", text: name.split(" ")[0] })));
+  }
+
   const panel = h("aside", { class: "cz", id: "cz", role: "dialog", "aria-label": "Customize", hidden: true },
     h("div", { class: "cz-head" },
       h("span", { class: "cz-title", text: "Customize" }),
-      h("button", { type: "button", class: "cz-x", "aria-label": "Close", text: "✕", onclick: () => close() })),
+      h("div", { class: "cz-head-end" },
+        headAcc,
+        h("button", { type: "button", class: "cz-x", "aria-label": "Close", text: "✕", onclick: () => close() }))),
     tabsEl,
     body,
     h("div", { class: "cz-foot" },
@@ -2398,8 +2577,12 @@
     });
     const scroll = body.scrollTop;
     conds = [];
+    painters = [];
     body.textContent = "";
     body.append(...tab.render());
+    /* feedback, rate, share and the about links, under every tab */
+    const QT = window.AtlasQuickTools;
+    if (QT && QT.footer) body.append(h("div", { class: "cz-about" }, QT.footer(() => close())));
     Array.from(body.children).forEach((c, i) => c.style.setProperty("--k", Math.min(i, 10)));
     body.scrollTop = scroll;
     resetBtn.hidden = !tab.reset;
@@ -2452,6 +2635,7 @@
       panel.classList.remove("is-closing");
       body.textContent = "";
       conds = [];
+    painters = [];
       if (typeof after === "function") after();
       else lastFocus = null;
     };
@@ -2485,10 +2669,12 @@
       if (isOpen() && activeTab === "privacy") renderTab();
     });
   }
-  /* the Background tab follows the premium library as it loads */
-  if (window.AtlasPremium) AtlasPremium.on(() => { if (isOpen() && activeTab === "background") renderTab(); });
   /* the Account tab follows sign-in and sign-out, from any tab */
-  if (Acc) Acc.on(() => { if (isOpen() && activeTab === "account") renderTab(); });
+  if (Acc) {
+    Acc.on(() => { paintHeadAcc(); if (isOpen() && activeTab === "account") renderTab(); });
+    if (Acc.ready) Promise.resolve(Acc.ready).then(paintHeadAcc, paintHeadAcc);
+  }
+  paintHeadAcc();
 
   /* ================= PUBLIC API ========================================== */
   /* filled in by app.js: setWallpaper, currentWallpaper, and for the
