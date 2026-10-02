@@ -35,11 +35,11 @@ export const env = {
   cronSecret: process.env.CRON_SECRET || "",
 
   /* the online wallpaper sources (routes/wallpapers.routes.js), each on
-     or off: Pexels (live videos, searched here with the key) and
+     or off: Pixabay (live videos, searched here with the key) and
      Wallhaven (still images, the extension calls WALLHAVEN_URL itself) */
-  pexels: {
-    on: process.env.PEXELS === "true",
-    key: process.env.PEXELS_API_KEY || "",
+  pixabay: {
+    on: process.env.PIXABAY === "true",
+    key: process.env.PIXABAY_API_KEY || "",
   },
   wallhaven: {
     on: process.env.WALLHAVEN === "true",

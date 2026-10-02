@@ -2207,7 +2207,7 @@
       !has && optional ? h("span", { class: "cz-file", text: "Uses the normal image" }) : null), { stack: true });
   }
 
-  /* the online library (library.js): Wallhaven stills and Pexels videos,
+  /* the online library (library.js): 4K stills and live videos,
      shown from their own sites. The results repaint in place (libPaint),
      so the search box keeps its focus while they load. */
   let libPaint = null;
@@ -2224,8 +2224,6 @@
     const QT = window.AtlasQuickTools;
     if (QT && QT.upgradeNote) msg.append(QT.upgradeNote(text));
   };
-  const extLink = (href, text) =>
-    href ? h("a", { href, target: "_blank", rel: "noopener noreferrer", text }) : text;
 
   function libraryGroup() {
     const L = window.AtlasLibrary;
@@ -2286,14 +2284,13 @@
         credit: it.credit, creditUrl: it.creditUrl, link: it.link,
       });
       set("background.mode", "online");
-      paintNow();
     };
     const card = (it) => {
       const locked = !it.src;
       const live = it.kind === "video";
       const size = it.width && it.height ? it.width + "×" + it.height : "";
       const badge = live ? "Live" : it.width >= 3840 ? "4K" : "";
-      const title = (live ? "Video" + (it.credit ? " by " + it.credit : "") + " on Pexels" : "Wallhaven" + (size ? " · " + size : "")) + (locked ? " — Atlas Pro" : "");
+      const title = (live ? "Live wallpaper" : "Wallpaper") + (size ? " · " + size : "") + (locked ? " — Atlas Pro" : "");
       /* the star: saves it to Favourites, which come first */
       const star = h("button", {
         type: "button", class: "cz-pwp-fav",
@@ -2312,7 +2309,7 @@
         "data-key": it.key,
       },
       h("img", { src: it.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }),
-      h("span", { class: "cz-pwp-name", text: live ? (it.credit ? "by " + it.credit : "Pexels") : size }),
+      h("span", { class: "cz-pwp-name", text: size }),
       badge ? h("span", { class: "cz-pwp-new", text: badge }) : null,
       locked ? h("span", { class: "cz-pwp-lock", "aria-hidden": "true", text: "🔒" }) : null,
       h("button", { type: "button", class: "cz-pwp-hit", title, "aria-label": title, onclick: () => pick(it) }),
@@ -2353,8 +2350,8 @@
       requestAnimationFrame(edges);
       const src = L.sources();
       about.textContent = !src ? ""
-        : [src.wallhaven ? "4K stills from Wallhaven" : "", src.pexels ? "live videos from Pexels" + (pro ? "" : " (Atlas Pro)") : ""]
-          .filter(Boolean).join(" and ").replace(/^./, (c) => c.toUpperCase()) + (src.wallhaven || src.pexels ? ", shown straight from their sites." : "");
+        : [src.wallhaven ? "4K stills" : "", src.pixabay ? "live videos" + (pro ? "" : " (Atlas Pro)") : ""]
+          .filter(Boolean).join(" and ").replace(/^./, (c) => c.toUpperCase()) + (src.wallhaven || src.pixabay ? "." : "");
       about.hidden = !about.textContent;
       const keys = st.items.map((i) => i.key).join("|");
       if (keys !== grid.dataset.keys) {
@@ -2374,24 +2371,10 @@
     libPaint = () => { if (grid.isConnected) paint(); };
     paint();
 
-    /* credit for the one on screen (the Pexels terms ask for it) */
-    const now = h("p", { class: "cz-note" });
-    function paintNow() {
-      const o = bg.online;
-      now.textContent = "";
-      now.hidden = !(bg.mode === "online" && o.src);
-      if (now.hidden) return;
-      now.append("On screen: ", ...(o.kind === "video"
-        ? [extLink(o.link, "video"), ...(o.credit ? [" by ", extLink(o.creditUrl, o.credit)] : []), " on ", extLink("https://www.pexels.com", "Pexels")]
-        : [extLink(o.link, "wallpaper"), " from ", extLink("https://wallhaven.cc", "Wallhaven")]));
-    }
-    paintNow();
-
     return group("Online library",
       about,
       chips,
       search,
-      now,
       grid,
       status,
       h("div", { class: "cz-btns" }, moreBtn),

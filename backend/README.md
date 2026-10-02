@@ -64,9 +64,9 @@ After changing `schema.prisma`, run `npm run db:migrate -- --name what_changed`.
 
 **Online wallpapers.** Each source is switched on in `.env`, and the extension only shows the ones that are on (`GET /wallpapers/sources`).
 
-- `PEXELS=true` turns on live videos. Get a free key at pexels.com/api and put it in `PEXELS_API_KEY`. The key stays on the server: the extension searches through `GET /wallpapers/live`, and the videos play straight from Pexels.
+- `PIXABAY=true` turns on live videos. Get a free key at pixabay.com/api/docs and put it in `PIXABAY_API_KEY`. The key stays on the server: the extension searches through `GET /wallpapers/live`, and the videos play straight from Pixabay.
 - `WALLHAVEN=true` turns on still 4K images. `WALLHAVEN_URL` is the search API (`https://wallhaven.cc/api/v1/search`). The extension calls it itself, SFW only, with no key, so Wallhaven's rate limit counts per user rather than against this server.
-- Nothing is copied or cached here. The extension names the Pexels creator and links to the video, as the Pexels API terms ask.
+- Nothing is copied or cached here.
 
 ## Deploy to Vercel
 
@@ -100,8 +100,8 @@ Send `Authorization: Bearer <accessToken>` on every route marked 🔒.
 | PUT 🔒 | `/stats/prefs` | `{ weeklyEmail }` → `{ weeklyEmail }`. Turning it on needs Pro. |
 | PUT 🔒 Pro | `/stats/week` | `{ weeks: [{ week: "YYYY-MM-DD" (a Monday), data }] }` → `{ ok }` |
 | GET | `/cron/weekly-email` | Vercel Cron only (`Bearer $CRON_SECRET`). Emails last week's summary. |
-| GET | `/wallpapers/sources` | → `{ pexels, wallhaven }`: whether Pexels is on, and the Wallhaven search URL (or `null` when off). |
-| GET | `/wallpapers/live?q=&page=` | Pexels video search (no `q` = popular) → `{ items: [{ id, thumb, video, width, height, duration, credit, creditUrl, link }], page, more, pro }`. `video` is only filled in for Pro. |
+| GET | `/wallpapers/sources` | → `{ pixabay, wallhaven }`: whether Pixabay is on, and the Wallhaven search URL (or `null` when off). |
+| GET | `/wallpapers/live?q=&page=` | Pixabay video search (no `q` = popular) → `{ items: [{ id, thumb, video, width, height, duration, credit, creditUrl, link }], page, more, pro }`. `video` is only filled in for Pro. |
 | GET | `/billing/config` | → `{ environment, clientToken, prices }` |
 | POST 🔒 | `/billing/checkout` | `{ interval: "month" \| "year" }` → `{ url }` (open it in a new tab) |
 | POST 🔒 | `/billing/portal` | → `{ url }` (the page for cancelling or updating the card) |
@@ -134,7 +134,7 @@ To lock a route to Pro users, add `requirePro` after `requireAuth` (see `src/mid
 | Feature | Free | Pro |
 |---|---|---|
 | Online wallpapers: 4K stills (Wallhaven) | ✓ | ✓ |
-| Online wallpapers: live videos (Pexels) | Thumbnails only | ✓ |
+| Online wallpapers: live videos (Pixabay) | Thumbnails only | ✓ |
 | Stats dashboard | Today | 7 and 30 days, plus the Monday email |
 | Automatic sync | Manual save and restore only | Everything, automatically (`/sync`) |
 | Habits | 3 | 30 |

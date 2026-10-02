@@ -232,7 +232,7 @@ All, 4K, Live, Anime or Nature, or search.
 
 - **Stills** come from the Wallhaven API (SFW only). The extension calls it
   directly and needs no key.
-- **Live videos** come from Pexels Videos, searched through the backend
+- **Live videos** come from Pixabay Videos, searched through the backend
   (`GET /wallpapers/live`) so the API key stays on the server. Everyone sees
   the thumbnails, but only Pro gets the video links.
 
@@ -240,9 +240,9 @@ The ☆ on a card saves it to **Favourites** (`wp:favs`, synced with the
 account). Favourites get their own chip at the front of the row and come
 first in **All**.
 
-Files are shown straight from Wallhaven and Pexels, never copied or
+Files are shown straight from Wallhaven and Pixabay, never copied or
 re-hosted. The pick is saved in `settings.background.online` (mode
-`online`). Customize credits the Pexels creator of the video on screen.
+`online`).
 The bundled wallpapers in `config.js` stay free.
 
 ## Daily quote

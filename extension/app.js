@@ -81,7 +81,7 @@
 
   /* ================= WALLPAPER ===========================================
      The background is one of: a built-in live wallpaper, one from the
-     online library (library.js: a Wallhaven image or a Pexels video, shown
+     online library (library.js: a 4K image or a Pixabay video, shown
      from their servers), the user's own uploaded image / video, a solid
      colour or a gradient (Customize > Background).
 
