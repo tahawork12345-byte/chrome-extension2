@@ -2273,8 +2273,9 @@
       if (bg.mode === "online" && bg.online.id === it.key) return; // already on screen
       libDone();
       libPending = it.key;
-      /* the wallpaper may take a moment; if it never says, stop spinning */
-      libPendingTimer = setTimeout(libDone, 20000);
+      /* the wallpaper may take a moment (a live one downloads whole, often
+         100+ MB); if it never says, stop spinning */
+      libPendingTimer = setTimeout(libDone, it.kind === "video" ? 300000 : 20000);
       grid.querySelectorAll(".cz-pwp").forEach((b) => {
         b.classList.toggle("is-on", b.dataset.key === it.key);
         b.classList.toggle("is-loading", b.dataset.key === it.key);
@@ -2350,8 +2351,8 @@
       requestAnimationFrame(edges);
       const src = L.sources();
       about.textContent = !src ? ""
-        : [src.wallhaven ? "4K stills" : "", src.pixabay ? "live videos" + (pro ? "" : " (Atlas Pro)") : ""]
-          .filter(Boolean).join(" and ").replace(/^./, (c) => c.toUpperCase()) + (src.wallhaven || src.pixabay ? "." : "");
+        : [src.wallhaven ? "4K stills" : "", src.live ? "live videos" + (pro ? "" : " (Atlas Pro)") : ""]
+          .filter(Boolean).join(" and ").replace(/^./, (c) => c.toUpperCase()) + (src.wallhaven || src.live ? "." : "");
       about.hidden = !about.textContent;
       const keys = st.items.map((i) => i.key).join("|");
       if (keys !== grid.dataset.keys) {

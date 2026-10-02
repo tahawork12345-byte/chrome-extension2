@@ -114,10 +114,51 @@
     if (p && p.catch) p.catch(() => {});
   }
 
+  /* online live wallpapers are big 4K files. Streamed from the CDN they
+     start on a few seconds of buffer, outrun the download and stall, and
+     each loop fetches them again. So the whole file is downloaded first
+     (kept in Cache Storage for next time) and played from memory. */
+  const VIDEO_CACHE = "atlas-live-videos";
+  const VIDEO_CACHE_MAX = 3; // files kept on disk
+  const videoBlobs = new Set(); // object URLs made here, revoked on unload
+
+  async function fullVideo(src) {
+    if (!/^https:\/\//.test(src) || typeof caches === "undefined") return src;
+    try {
+      const cache = await caches.open(VIDEO_CACHE);
+      let res = await cache.match(src);
+      if (!res) {
+        res = await fetch(src, { referrerPolicy: "no-referrer" });
+        if (!res.ok) return src;
+        try {
+          await cache.put(src, res.clone());
+          const keys = await cache.keys(); // oldest first
+          await Promise.all(keys.slice(0, Math.max(0, keys.length - VIDEO_CACHE_MAX)).map((k) => cache.delete(k)));
+        } catch (_) { /* no room: play it anyway */ }
+      }
+      let blob = await res.blob();
+      /* some hosts send it as a download (application/octet-stream) */
+      if (!/^video\//.test(blob.type)) blob = new Blob([blob], { type: "video/mp4" });
+      const url = URL.createObjectURL(blob);
+      videoBlobs.add(url);
+      return url;
+    } catch (_) {
+      return src; // stream it as before
+    }
+  }
+
+  function dropBlob(url) {
+    if (!videoBlobs.has(url)) return;
+    videoBlobs.delete(url);
+    URL.revokeObjectURL(url);
+  }
+
   function unloadVideo(v) {
+    const was = v.src;
     v.pause();
     v.removeAttribute("src");
     v.load();
+    dropBlob(was);
   }
 
   /* resolves once the video can play (or has failed, or taken too long) */
@@ -176,10 +217,17 @@
     const next = shownVideo ? layers[1 - front] : cur;
     loadingVideo = src;
     syncLoading();
-    next.src = src;
+    const stale = () => loadingVideo !== src || !want || want.video !== src;
+    const play = await fullVideo(src);
+    if (stale()) {
+      dropBlob(play);
+      if (loadingVideo === src) { loadingVideo = ""; syncLoading(); }
+      return false;
+    }
+    next.src = play;
     playSafe(next);
     if (!instant) await videoReady(next);
-    if (loadingVideo !== src || !want || want.video !== src) {
+    if (stale()) {
       if (loadingVideo === src) { loadingVideo = ""; syncLoading(); }
       if (!next.classList.contains("is-active")) unloadVideo(next);
       return false;

@@ -278,8 +278,23 @@
   }
 
   /* Pro, as far as this computer knows (the server re-checks every Pro call).
-     While everything is free (PRO_CONFIG.allFree), everyone counts as Pro. */
-  const allFree = typeof PRO_CONFIG !== "undefined" && !!PRO_CONFIG.allFree;
+     While everything is free (ALL_FREE in the backend's .env, read through
+     GET /config), everyone counts as Pro. The last answer is kept so a new
+     tab starts right; PRO_CONFIG.allFree is only the guess before any answer. */
+  const FREE_KEY = "account:allFree";
+  let allFree = typeof PRO_CONFIG !== "undefined" && !!PRO_CONFIG.allFree;
+  const freeReady = get(FREE_KEY).then((v) => { if (typeof v === "boolean") allFree = v; });
+  if (API) {
+    freeReady
+      .then(() => request("/config"))
+      .then(async (cfg) => {
+        if (!cfg || typeof cfg.allFree !== "boolean" || cfg.allFree === allFree) return;
+        allFree = cfg.allFree;
+        await put({ [FREE_KEY]: allFree });
+        emit();
+      })
+      .catch(() => {}); // offline: keep the last answer
+  }
   function isPro() {
     if (allFree) return true;
     const u = session && session.user;
@@ -287,12 +302,12 @@
   }
 
   window.AtlasAccount = {
-    ready,
+    ready: Promise.all([ready, freeReady]).then(() => session),
     configured,
     user: () => (session ? session.user : null),
     signedIn: () => !!session,
     isPro,
-    allFree,
+    get allFree() { return allFree; },
     on: (fn) => listeners.push(fn),
     signIn,
     signOut,

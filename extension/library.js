@@ -4,8 +4,8 @@
    straight from their own servers (nothing is copied or re-hosted):
      - still 4K wallpapers from Wallhaven (WALLHAVEN_URL, SFW only), called
        from here — it needs no key;
-     - live wallpapers from Pixabay Videos, searched through the backend
-       (GET /wallpapers/live) so the API key stays there. Everyone sees the
+     - live wallpapers from Pixabay Videos and WallpaperWaves, searched
+       through the backend (GET /wallpapers/live) so the API key stays there. Everyone sees the
        thumbnails; the video link is only in the answer for Pro.
    The chosen one is kept in settings.background.online (mode "online")
    and app.js shows it. Search results live in memory for this page only.
@@ -62,7 +62,8 @@
     { id: "games", label: "Games", still: HD, topic: "video games" },
   ];
 
-  /* which sources the server has on: { pixabay: bool, wallhaven: url | null }.
+  /* which sources the server has on: { pixabay: bool, wallpaperwaves: bool,
+     live: bool (either of those), wallhaven: url | null }.
      A failed ask isn't kept, so the next search asks again. */
   let sources = null;
   async function loadSources() {
@@ -74,10 +75,10 @@
       if (!r.ok) throw new Error();
       d = await r.json();
     } catch { throw new Error("Can't reach the Atlas server. Check your connection."); }
-    sources = { pixabay: !!d.pixabay, wallhaven: https(d.wallhaven) ? d.wallhaven : null };
+    sources = { pixabay: !!d.pixabay, wallpaperwaves: !!d.wallpaperwaves, live: !!(d.pixabay || d.wallpaperwaves), wallhaven: https(d.wallhaven) ? d.wallhaven : null };
     return sources;
   }
-  const available = (f) => !!sources && (f.favs ? favs.length > 0 : (f.still && !!sources.wallhaven) || (f.live && sources.pixabay));
+  const available = (f) => !!sources && (f.favs ? favs.length > 0 : (f.still && !!sources.wallhaven) || (f.live && sources.live));
 
   async function stills(f, q, typed, page) {
     const p = new URLSearchParams({ purity: "100", categories: f.still.categories, atleast: f.still.atleast, ratios: "landscape", page: String(page) });
@@ -120,8 +121,8 @@
         return body;
       }, () => { throw new Error("Can't reach the Atlas server. Check your connection."); });
     const items = (d.items || []).filter((v) => v && v.id && https(v.thumb)).map((v) => ({
-      key: "pb:" + v.id,
-      source: "pixabay",
+      key: (v.source === "wallpaperwaves" ? "ww:" : "pb:") + v.id,
+      source: v.source === "wallpaperwaves" ? "wallpaperwaves" : "pixabay",
       kind: "video",
       thumb: v.thumb,
       src: https(v.video) ? v.video : null, // null: locked (not Pro)
@@ -136,9 +137,9 @@
 
   /* ---------- favourites ---------- */
   let favs = []; // the items as the library gave them, newest first
-  const cleanFav = (v) => (v && typeof v.key === "string" && /^(wh|pb):/.test(v.key) && https(v.thumb) ? {
+  const cleanFav = (v) => (v && typeof v.key === "string" && /^(wh|pb|ww):/.test(v.key) && https(v.thumb) ? {
     key: v.key.slice(0, 40),
-    source: v.source === "pixabay" ? "pixabay" : "wallhaven",
+    source: ["pixabay", "wallpaperwaves"].includes(v.source) ? v.source : "wallhaven",
     kind: v.kind === "video" ? "video" : "image",
     thumb: v.thumb,
     src: https(v.src) ? v.src : null,
@@ -198,7 +199,7 @@
     const f = available(filterOf(filter)) ? filterOf(filter) : FILTERS.find((x) => !x.favs && available(x));
     lib.loading = false;
     if (!f) {
-      lib.still.error = "No wallpaper sources are turned on (PIXABAY / WALLHAVEN on the server).";
+      lib.still.error = "No wallpaper sources are turned on (PIXABAY / WALLPAPERWAVES / WALLHAVEN on the server).";
       return emit();
     }
     lib.filter = f.id;
@@ -212,7 +213,7 @@
     /* All, with nothing typed: the favourites come first */
     if (f.id === "all" && !lib.q) lib.items = favs.slice();
     lib.still.more = !!f.still && !!sources.wallhaven;
-    lib.live.more = !!f.live && sources.pixabay;
+    lib.live.more = !!f.live && sources.live;
     return more();
   }
 

@@ -31,6 +31,13 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, model: env.geminiModel, geminiKeySet: Boolean(env.geminiKey) });
 });
 
+/* what the extension needs before sign-in: whether everything is free
+   (ALL_FREE in .env) */
+app.get("/config", (req, res) => {
+  res.set("Cache-Control", "public, max-age=60");
+  res.json({ allFree: env.allFree });
+});
+
 app.use(authRouter);
 app.use(aiRouter);
 app.use(billingRouter);

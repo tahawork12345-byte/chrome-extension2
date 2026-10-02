@@ -214,11 +214,12 @@ const ACCOUNT_CONFIG = {
                   (1 = today only; Pro sees 30 days and the weekly email)
    freeSessions:  tab sessions a free account can save (Quick tools →
                   Tab manager)
-   allFree:       true = every Pro feature is open to everyone, signed in
-                  or not, and nothing offers an upgrade (the backend has the
-                  same switch, ALL_FREE). false brings the Pro plan back. */
+   allFree:       only the guess before the backend first answers. The real
+                  switch is ALL_FREE in the backend's .env (read through
+                  GET /config): true = every Pro feature open to everyone and
+                  nothing offers an upgrade; false = the Pro plan is on. */
 const PRO_CONFIG = {
-  allFree: true,
+  allFree: false,
   freeHabits: 3,
   freeStatsDays: 1,
   freeSessions: 3,

@@ -16,9 +16,10 @@ export const env = {
   refreshTokenDays: int(process.env.REFRESH_TOKEN_DAYS, 30),
   googleClientIds: list(process.env.GOOGLE_CLIENT_IDS),
 
-  /* every Pro feature open to everyone, signed in or not (for now). Set
-     ALL_FREE=false to bring the Pro plan back. */
-  allFree: process.env.ALL_FREE !== "false",
+  /* ALL_FREE=true: every Pro feature open to everyone, signed in or not.
+     Anything else (or unset): the Pro plan is on. The extension reads this
+     through GET /config, so this is the only switch. */
+  allFree: process.env.ALL_FREE === "true",
 
   geminiKey: process.env.GEMINI_API_KEY || "",
   geminiModel: process.env.GEMINI_MODEL || "gemini-3.1-flash-lite",
@@ -35,11 +36,16 @@ export const env = {
   cronSecret: process.env.CRON_SECRET || "",
 
   /* the online wallpaper sources (routes/wallpapers.routes.js), each on
-     or off: Pixabay (live videos, searched here with the key) and
+     or off: Pixabay (live videos, searched here with the key),
+     WallpaperWaves (live videos, its public WordPress API) and
      Wallhaven (still images, the extension calls WALLHAVEN_URL itself) */
   pixabay: {
     on: process.env.PIXABAY === "true",
     key: process.env.PIXABAY_API_KEY || "",
+  },
+  wallpaperwaves: {
+    on: process.env.WALLPAPERWAVES === "true",
+    url: (process.env.WALLPAPERWAVES_URL || "https://wallpaperwaves.com/wp-json/wp/v2").replace(/\/+$/, ""),
   },
   wallhaven: {
     on: process.env.WALLHAVEN === "true",
