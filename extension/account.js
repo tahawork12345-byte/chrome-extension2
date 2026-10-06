@@ -234,6 +234,7 @@
     if (session && data && data.user && JSON.stringify(data.user) !== JSON.stringify(session.user)) {
       session = Object.assign({}, session, { user: data.user });
       await put({ [KEY]: session });
+      emit(); // the plan or the trial may have changed
     }
     return data;
   }
@@ -268,9 +269,42 @@
 
   /* ---------- billing (Paddle, through the backend) ---------- */
   const openTab = (url) => (chrome.tabs && chrome.tabs.create ? chrome.tabs.create({ url }) : window.open(url, "_blank"));
+  /* the checkout this computer opened and hasn't seen confirmed yet;
+     pro.js keeps asking the server about it until Pro is on */
+  const PENDING_KEY = "billing:pending";
   async function upgrade(interval) {
-    const { url } = await api("/billing/checkout", { method: "POST", body: { interval } });
+    const { url, transactionId } = await api("/billing/checkout", { method: "POST", body: { interval } });
+    await put({ [PENDING_KEY]: { id: transactionId || "", interval, at: Date.now() } });
     openTab(url);
+  }
+  /* a checkout opened within the last day, or null */
+  async function pendingPurchase() {
+    const p = await get(PENDING_KEY);
+    if (!p || Date.now() - p.at > 86_400_000) return null;
+    return p;
+  }
+  const clearPending = () => drop(PENDING_KEY);
+  /* asks the server to fetch the subscription from Paddle now (rather than
+     wait for the webhook) and keeps the fresh profile. -> isPro() */
+  async function syncBilling() {
+    const p = await pendingPurchase();
+    const data = await api("/billing/sync", { method: "POST", body: { transactionId: p ? p.id : undefined } });
+    if (session && data && data.user && JSON.stringify(data.user) !== JSON.stringify(session.user)) {
+      session = Object.assign({}, session, { user: data.user });
+      await put({ [KEY]: session });
+      emit();
+    }
+    return paid(session && session.user);
+  }
+  /* the prices of the two plans, from Paddle -> { monthly, yearly } or {} */
+  let plansP = null;
+  function plans() {
+    if (!plansP) {
+      plansP = request("/billing/plans")
+        .then((p) => { if (!p || !p.monthly) plansP = null; return p || {}; })
+        .catch(() => { plansP = null; return {}; });
+    }
+    return plansP;
   }
   async function manageBilling() {
     const { url } = await api("/billing/portal", { method: "POST" });
@@ -283,22 +317,52 @@
      tab starts right; PRO_CONFIG.allFree is only the guess before any answer. */
   const FREE_KEY = "account:allFree";
   let allFree = typeof PRO_CONFIG !== "undefined" && !!PRO_CONFIG.allFree;
+  let trialDays = 7; // TRIAL_DAYS on the server, for the screens that offer the trial
+  let configOk = false; // the server has answered /config on this page
   const freeReady = get(FREE_KEY).then((v) => { if (typeof v === "boolean") allFree = v; });
-  if (API) {
-    freeReady
-      .then(() => request("/config"))
-      .then(async (cfg) => {
-        if (!cfg || typeof cfg.allFree !== "boolean" || cfg.allFree === allFree) return;
-        allFree = cfg.allFree;
-        await put({ [FREE_KEY]: allFree });
-        emit();
-      })
-      .catch(() => {}); // offline: keep the last answer
-  }
+  const configReady = !API ? Promise.resolve() : freeReady
+    .then(() => request("/config"))
+    .then(async (cfg) => {
+      if (!cfg || typeof cfg.allFree !== "boolean") return;
+      configOk = true;
+      if (Number.isFinite(cfg.trialDays)) trialDays = cfg.trialDays;
+      if (cfg.allFree === allFree) return;
+      allFree = cfg.allFree;
+      await put({ [FREE_KEY]: allFree });
+      emit();
+    })
+    .catch(() => {}); // offline: keep the last answer
+
+  /* a paid plan, or the free trial every new account starts with
+     (user.trialEndsAt, TRIAL_DAYS after the first sign-in) */
+  const paid = (u) => !!(u && u.plan === "PRO" && (!u.planExpiresAt || new Date(u.planExpiresAt) > new Date()));
+  const trialEnd = (u) => (u && u.trialEndsAt ? new Date(u.trialEndsAt) : null);
   function isPro() {
     if (allFree) return true;
     const u = session && session.user;
-    return !!(u && u.plan === "PRO" && (!u.planExpiresAt || new Date(u.planExpiresAt) > new Date()));
+    return paid(u) || (!!trialEnd(u) && trialEnd(u) > new Date());
+  }
+  /* the trial of the signed-in account: { endsAt, active, daysLeft }, or
+     null (signed out, paid, everything free, or an account from before trials) */
+  function trial() {
+    const u = session && session.user;
+    const end = trialEnd(u);
+    if (allFree || !end || paid(u)) return null;
+    const ms = end.getTime() - Date.now();
+    return { endsAt: end, active: ms > 0, daysLeft: Math.max(0, Math.ceil(ms / 86_400_000)) };
+  }
+
+  /* Pro as the server sees it now: true / false, or null when it can't be
+     asked (offline). Signed in, it fetches the fresh profile first, so a
+     plan bought or ended elsewhere is known. Anything that takes a Pro
+     choice away waits for this, never for the guess in isPro(). */
+  async function verify() {
+    await Promise.all([ready, configReady]);
+    if (!configOk) return null;
+    if (allFree) return true;
+    if (!session) return false;
+    try { await me(); } catch { return session ? null : false; }
+    return isPro();
   }
 
   window.AtlasAccount = {
@@ -307,7 +371,10 @@
     user: () => (session ? session.user : null),
     signedIn: () => !!session,
     isPro,
+    trial,
+    verify,
     get allFree() { return allFree; },
+    get trialDays() { return trialDays; },
     on: (fn) => listeners.push(fn),
     signIn,
     signOut,
@@ -318,6 +385,11 @@
     restoreFromAccount,
     lastSync: () => get(SYNC_KEY),
     upgrade,
+    pendingPurchase,
+    clearPending,
+    syncBilling,
+    plans,
+    paid: () => paid(session && session.user),
     manageBilling,
     openTab,
     api,

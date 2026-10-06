@@ -956,22 +956,50 @@
   }
 
   /* --- tabs --- */
+  /* Atlas Pro (pro.js): a free account gets the first preset and the
+     System cursor; the rest show a lock and open the upgrade box */
+  const P = () => window.AtlasPro;
+  const proLocked = (free) => !!P() && !P().isPro() && !free;
+  const needPro = (text) => !!P() && P().need(text);
+
   function presetButtons() {
     const wrap = h("div", { class: "cz-presets" });
     PRESETS.forEach((p) => {
       const dot = h("span", { class: "cz-dot" });
       dot.style.background = "linear-gradient(135deg, " + p.accent + " 0 50%, " + p.glass + " 50% 100%)";
+      const locked = proLocked(P() && P().freeTheme(p.id));
       wrap.append(h("button", {
-        type: "button", class: "cz-preset", "data-id": p.id,
+        type: "button", class: "cz-preset" + (locked ? " is-locked" : ""), "data-id": p.id,
+        title: locked ? p.label + " — Atlas Pro" : null,
         onclick: () => {
+          if (locked && needPro("The " + p.label + " theme is part of Atlas Pro. The " + PRESETS[0].label + " theme is free.")) return;
           const next = clone(settings);
           Object.assign(next.theme, { preset: p.id, accent: p.accent, ink: p.ink, glass: p.glass });
           next.lighting.traceMatch = true;
           replace(next);
         },
-      }, dot, p.label));
+      }, dot, p.label, locked ? h("span", { class: "cz-lock", "aria-hidden": "true", text: "🔒" }) : null));
     });
     return wrap;
+  }
+
+  /* the server says this account isn't Pro (pro.js): put any Pro look
+     back to the free one. Uploaded cursors are kept for when it is again. */
+  function dropPro() {
+    const free = P();
+    if (!free) return;
+    const next = clone(settings);
+    let changed = false;
+    if (next.theme.preset !== "custom" && !free.freeTheme(next.theme.preset)) {
+      const p = PRESETS.find((x) => free.freeTheme(x.id)) || PRESETS[0];
+      Object.assign(next.theme, { preset: p.id, accent: p.accent, ink: p.ink, glass: p.glass });
+      changed = true;
+    }
+    if (next.cursor && !free.freeCursor(next.cursor.style)) {
+      next.cursor.style = "default";
+      changed = true;
+    }
+    if (changed) replace(next);
   }
   function markPresets() {
     body.querySelectorAll(".cz-preset").forEach((b) =>
@@ -1204,7 +1232,7 @@
           onchange: () => {
             const f = importInput.files[0];
             importInput.value = "";
-            if (!f) return;
+            if (!f || needPro("Backup is part of Atlas Pro.")) return;
             f.text().then((text) => {
               const data = JSON.parse(text);
               const s = data && (data.settings || data);
@@ -1214,12 +1242,14 @@
             }).catch(() => say("That file isn't an Atlas settings export.", true));
           },
         });
+        const QT = window.AtlasQuickTools;
         return [
           group("Export & import",
             note("Save your look to a file, or load one — on another computer, or after a reset. An uploaded background file isn't included."),
+            proLocked(false) && QT && QT.upgradeNote ? QT.upgradeNote("Backup — export, import and saving to your account — is part of Atlas Pro.") : null,
             h("div", { class: "cz-btns" },
-              h("button", { type: "button", class: "cz-btn is-primary", text: "Export settings", onclick: exportSettings }),
-              h("button", { type: "button", class: "cz-btn", text: "Import…", onclick: () => importInput.click() }),
+              h("button", { type: "button", class: "cz-btn is-primary", text: "Export settings", onclick: () => needPro("Backup is part of Atlas Pro.") || exportSettings() }),
+              h("button", { type: "button", class: "cz-btn", text: "Import…", onclick: () => needPro("Backup is part of Atlas Pro.") || importInput.click() }),
               importInput),
             msg),
           group("Reset",
@@ -1474,7 +1504,8 @@
       btn.innerHTML = GOOGLE_G;
       btn.append(" Sign in with Google");
       return [group("Google account",
-        note("Sign in to keep your settings and shortcuts in your account and bring them to another computer" + (Acc.allFree ? "." : ", and manage Atlas Pro.")),
+        note("Sign in to keep your settings and shortcuts in your account and bring them to another computer" +
+          (Acc.allFree ? "." : ". A new account gets Atlas Pro free for " + Acc.trialDays + " days.")),
         h("div", { class: "cz-btns" }, btn),
         msg)];
     }
@@ -1516,7 +1547,7 @@
     paintSync();
     const saveBtn = h("button", {
       type: "button", class: "cz-btn is-primary", text: "Save to account",
-      onclick: () => accBusy(saveBtn, "Saving…", syncMsg, async () => {
+      onclick: () => needPro("Backup is part of Atlas Pro.") || accBusy(saveBtn, "Saving…", syncMsg, async () => {
         await Acc.saveToAccount();
         say(syncMsg, "Saved. Restore it on any computer where you sign in.");
         paintSync();
@@ -1525,6 +1556,7 @@
     const restoreBtn = h("button", {
       type: "button", class: "cz-btn", text: "Restore from account",
       onclick: () => {
+        if (needPro("Backup is part of Atlas Pro.")) return;
         if (!confirm("Replace this computer's settings and shortcuts with the ones saved in your account?")) return;
         accBusy(restoreBtn, "Restoring…", syncMsg, () => Acc.restoreFromAccount());
       },
@@ -1534,10 +1566,14 @@
     const planInfo = h("p", { class: "cz-note", text: "Loading your plan…" });
     const planBtns = h("div", { class: "cz-btns" });
     const paintPlan = (u, usage) => {
-      planBadge.textContent = u.plan === "PRO" ? "Pro" : "Free";
-      planBadge.classList.toggle("is-pro", u.plan === "PRO");
+      const trial = Acc.trial();
+      const onTrial = u.plan !== "PRO" && !!trial && trial.active;
+      planBadge.textContent = u.plan === "PRO" ? "Pro" : onTrial ? "Trial" : "Free";
+      planBadge.classList.toggle("is-pro", u.plan === "PRO" || onTrial);
       const ai = usage && usage.ai;
-      const bits = [u.plan === "PRO" ? "Atlas Pro" : Acc.allFree ? "Everything in Atlas is free for now" : "Free plan"];
+      const bits = [u.plan === "PRO" ? "Atlas Pro" : Acc.allFree ? "Everything in Atlas is free for now"
+        : onTrial ? "Atlas Pro free trial, " + trial.daysLeft + (trial.daysLeft === 1 ? " day" : " days") + " left (until " + trial.endsAt.toLocaleDateString() + ")"
+        : trial ? "Free plan — your free trial has ended" : "Free plan"];
       if (u.plan === "PRO" && u.planExpiresAt) bits.push("renews or ends " + new Date(u.planExpiresAt).toLocaleDateString());
       if (ai) bits.push("assistant: " + ai.used + " of " + ai.limit + " messages used today");
       planInfo.textContent = bits.join(" · ") + ".";
@@ -1547,11 +1583,14 @@
           onclick: () => accBusy(b, "Opening…", planMsg, () => Acc.manageBilling()) });
         planBtns.append(b);
       } else if (!Acc.allFree) {
-        const m = h("button", { type: "button", class: "cz-btn is-primary", text: "Upgrade — monthly",
-          onclick: () => accBusy(m, "Opening…", planMsg, () => Acc.upgrade("month")) });
-        const y = h("button", { type: "button", class: "cz-btn", text: "Upgrade — yearly",
-          onclick: () => accBusy(y, "Opening…", planMsg, () => Acc.upgrade("year")) });
-        planBtns.append(m, y);
+        const m = h("button", { type: "button", class: "cz-btn is-primary", text: "Upgrade to Pro",
+          onclick: () => (window.AtlasPro ? AtlasPro.open() : accBusy(m, "Opening…", planMsg, () => Acc.upgrade("month"))) });
+        /* paid somewhere and it hasn't shown up: ask Paddle now */
+        const c = h("button", { type: "button", class: "cz-btn", text: "Already paid? Refresh",
+          onclick: () => accBusy(c, "Checking…", planMsg, async () => {
+            if (!(await Acc.syncBilling())) say(planMsg, "No active subscription found for this account yet.");
+          }) });
+        planBtns.append(m, c);
       }
     };
     paintPlan(user, null);
@@ -1754,6 +1793,7 @@
           form(async (btn) => {
             if (p1.value.length < MIN_PASSWORD) return say(msg, "Use at least " + MIN_PASSWORD + " characters.", true);
             if (p1.value !== p2.value) return say(msg, "The passwords don't match.", true);
+            if (from.value && needPro("Starting the private space with a copy of your shortcuts is part of Atlas Pro.")) return;
             const seed = app.vaultSeed ? app.vaultSeed(from.value) : null;
             await busy(btn, "Encrypting…", () =>
               V.create(p1.value, seed).catch((err) => say(msg, "Couldn't create it: " + err.message, true)));
@@ -2064,10 +2104,17 @@
     const wrap = h("div", { class: "cz-cursors", role: "radiogroup", "aria-label": which === "packs" ? "Cursor packs" : "My cursors" });
     const tile = (style, label, pics) => {
       const on = settings.cursor.style === style;
+      const locked = proLocked(P() && P().freeCursor(style));
       return h("button", {
-        type: "button", class: "cz-cur" + (on ? " is-on" : ""), role: "radio", "aria-checked": String(on),
-        onclick: () => { set("cursor.style", style); renderTab(); },
-      }, h("span", { class: "cz-cur-pics", "aria-hidden": "true" }, ...pics), h("span", { class: "cz-cur-name", text: label }));
+        type: "button", class: "cz-cur" + (on ? " is-on" : "") + (locked ? " is-locked" : ""), role: "radio", "aria-checked": String(on),
+        title: locked ? label + " — Atlas Pro" : null,
+        onclick: () => {
+          if (locked && needPro("Cursor packs and your own cursors are part of Atlas Pro. The System cursor is free.")) return;
+          set("cursor.style", style);
+          renderTab();
+        },
+      }, h("span", { class: "cz-cur-pics", "aria-hidden": "true" }, ...pics), h("span", { class: "cz-cur-name", text: label }),
+      locked ? h("span", { class: "cz-lock", "aria-hidden": "true", text: "🔒" }) : null);
     };
     if (which === "packs") {
       AtlasCursors.PACKS.forEach((p) => {
@@ -2083,8 +2130,8 @@
     });
     if (settings.cursor.custom.length < AtlasCursors.MAX_CUSTOM) {
       wrap.append(h("button", {
-        type: "button", class: "cz-cur is-add",
-        onclick: () => cursorFile((url) => {
+        type: "button", class: "cz-cur is-add" + (proLocked(false) ? " is-locked" : ""),
+        onclick: () => !needPro("Uploading your own cursors is part of Atlas Pro.") && cursorFile((url) => {
           const list = settings.cursor.custom;
           const id = AtlasCursors.newId();
           list.push({ id, name: "Cursor " + (list.length + 1), normal: url, pointer: "", hot: "tip" });
@@ -2219,11 +2266,6 @@
     libPending = "";
     body.querySelectorAll(".cz-pwp.is-loading").forEach((b) => b.classList.remove("is-loading"));
   }
-  const upsellIn = (msg, text) => {
-    msg.textContent = "";
-    const QT = window.AtlasQuickTools;
-    if (QT && QT.upgradeNote) msg.append(QT.upgradeNote(text));
-  };
 
   function libraryGroup() {
     const L = window.AtlasLibrary;
@@ -2237,7 +2279,6 @@
     if (!L.state()) L.browse("all", "");
     const pro = L.isPro();
     const bg = settings.background;
-    const msg = h("div", { class: "cz-pwp-msg" });
 
     const chips = h("div", { class: "cz-lib-chips", role: "tablist", "aria-label": "Wallpaper kind" });
     /* a mouse wheel scrolls the row sideways */
@@ -2269,8 +2310,11 @@
     search.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
 
     const pick = (it) => {
-      if (!it.src) return upsellIn(msg, "Live 4K video wallpapers come with Atlas Pro.");
+      if (!it.src) return;
       if (bg.mode === "online" && bg.online.id === it.key) return; // already on screen
+      /* a free account has a few (pro.js); this one may be the last */
+      if (window.AtlasPro && !AtlasPro.wallpaper(it.key)) return;
+      if (!pro) { grid.dataset.keys = ""; paint(); }
       libDone();
       libPending = it.key;
       /* the wallpaper may take a moment (a live one downloads whole, often
@@ -2287,7 +2331,7 @@
       set("background.mode", "online");
     };
     const card = (it) => {
-      const locked = !it.src;
+      const locked = !it.src || (!!window.AtlasPro && !AtlasPro.canUse(it.key));
       const live = it.kind === "video";
       const size = it.width && it.height ? it.width + "×" + it.height : "";
       const badge = live ? "Live" : it.width >= 3840 ? "4K" : "";
@@ -2350,9 +2394,11 @@
       }
       requestAnimationFrame(edges);
       const src = L.sources();
+      const free = P();
       about.textContent = !src ? ""
-        : [src.wallhaven ? "4K stills" : "", src.live ? "live videos" + (pro ? "" : " (Atlas Pro)") : ""]
-          .filter(Boolean).join(" and ").replace(/^./, (c) => c.toUpperCase()) + (src.wallhaven || src.live ? "." : "");
+        : [src.wallhaven ? "4K stills" : "", src.live ? "live videos" : ""]
+          .filter(Boolean).join(" and ").replace(/^./, (c) => c.toUpperCase()) + (src.wallhaven || src.live ? "." : "") +
+          (!pro && free ? " Free: " + free.wallpapersLeft() + " of " + free.freeWallpapers + " left — Atlas Pro has no limit." : "");
       about.hidden = !about.textContent;
       const keys = st.items.map((i) => i.key).join("|");
       if (keys !== grid.dataset.keys) {
@@ -2378,8 +2424,7 @@
       search,
       grid,
       status,
-      h("div", { class: "cz-btns" }, moreBtn),
-      msg);
+      h("div", { class: "cz-btns" }, moreBtn));
   }
 
   /* the built-in live wallpapers; picking one hands over to app.js */
@@ -2709,6 +2754,7 @@
     media,
     app,
     exportSettings,
+    dropPro,
     /* the checks settings go through, for panels outside Customize */
     clean: { site: cleanSite, sites: normalizeSites, minRules: normalizeMinRules, quotes: normalizeQuotes },
   };

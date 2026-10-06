@@ -679,6 +679,13 @@
     };
   }
 
+  /* adding shortcuts, sections or open tabs to the private space is part
+     of Atlas Pro (pro.js opens the upgrade box); what's in it stays usable */
+  function privateLocked(ws) {
+    if (!ws || !ws.private || !window.AtlasPro) return false;
+    return AtlasPro.need("Adding tabs and shortcuts to the private space is part of Atlas Pro.");
+  }
+
   function openVault() {
     if (!vaultWs()) return;
     setWorkspace(VAULT_ID);
@@ -917,7 +924,7 @@
         }
         grid.append(a);
       });
-      const add = pfBtn("pf-app pf-app-add", "", () => pfAddForm(sec, card), "Add a shortcut to " + (card.title || "this section"));
+      const add = pfBtn("pf-app pf-app-add", "", () => privateLocked(ws) || pfAddForm(sec, card), "Add a shortcut to " + (card.title || "this section"));
       add.append(pfEl("span", "pf-app-icon", "+"), pfEl("span", "pf-app-name", "Add"));
       grid.append(add);
       sec.append(grid);
@@ -1439,7 +1446,7 @@
 
   async function saveOpenTabs() {
     const ws = vaultWs();
-    if (!ws || !canReadTabs || currentWs() !== ws) return;
+    if (!ws || !canReadTabs || currentWs() !== ws || privateLocked(ws)) return;
     let list = [];
     try { list = await chrome.tabs.query({ currentWindow: true }); } catch { list = []; }
     const tab = activeTab(ws);
@@ -1886,7 +1893,7 @@
 
   function addCard() {
     const ws = currentWs();
-    if (!ws) return;
+    if (!ws || privateLocked(ws)) return;
     openDialog("New section", [
       field("Name", "title", "", "Reading"),
       field("Label", "hint", "", "Later", "Optional, shown when hovering the tab"),
@@ -1929,6 +1936,7 @@
     if (!card) return;
     const item = itemId ? card.items.find((it) => it.id === itemId) : null;
     if (itemId && !item) return;
+    if (!item && privateLocked(currentWs())) return;
 
     openDialog(item ? "Edit shortcut" : "New shortcut", [
       field("Name", "name", item ? item.name : "", "GitHub"),

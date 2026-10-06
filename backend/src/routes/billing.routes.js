@@ -3,7 +3,16 @@ import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import { requireAuth } from "../middleware/auth.js";
-import { createCheckout, createPortalSession, verifyWebhook } from "../services/paddle.js";
+import { publicUser } from "../services/tokens.js";
+import {
+  createCheckout,
+  createPortalSession,
+  getPlanPrices,
+  getSubscription,
+  getTransaction,
+  listSubscriptions,
+  verifyWebhook,
+} from "../services/paddle.js";
 
 export const billingRouter = Router();
 
@@ -21,6 +30,12 @@ billingRouter.get("/billing/config", (req, res) => {
   });
 });
 
+/* public: real prices for the extension's upgrade box -> { monthly, yearly } */
+billingRouter.get("/billing/plans", async (req, res) => {
+  res.set("Cache-Control", "public, max-age=600");
+  res.json(await getPlanPrices(env.paddle.prices));
+});
+
 /* body { interval: "month" | "year" }  ->  { url }  (open it in a new tab) */
 billingRouter.post("/billing/checkout", requireAuth, async (req, res) => {
   const interval = req.body && req.body.interval;
@@ -31,6 +46,31 @@ billingRouter.post("/billing/checkout", requireAuth, async (req, res) => {
   if (active) throw new HttpError(409, "You already have an active subscription. Manage it from the billing portal.", { code: "already_subscribed" });
 
   res.json(await createCheckout({ priceId, user: req.user }));
+});
+
+/* body { transactionId? }  ->  { user }
+   Asks Paddle for the subscription right away instead of waiting for the
+   webhook, so Pro turns on the moment the customer comes back from checkout
+   (and still turns on if a webhook is late, failed, or never configured). */
+billingRouter.post("/billing/sync", requireAuth, async (req, res) => {
+  const txnId = req.body && typeof req.body.transactionId === "string" ? req.body.transactionId : "";
+  const subs = [];
+
+  if (/^txn_[a-z0-9]+$/i.test(txnId)) {
+    const tx = await getTransaction(txnId);
+    /* only the account that started this checkout may claim it */
+    if (!tx.custom_data || tx.custom_data.userId !== req.user.id) throw new HttpError(403, "This purchase belongs to another account");
+    if (tx.subscription_id) subs.push(await getSubscription(tx.subscription_id));
+    else if (!["completed", "paid"].includes(tx.status)) {
+      return res.json({ user: publicUser(req.user), pending: true });
+    }
+  }
+  const customerId = req.user.paddleCustomerId;
+  if (!subs.length && customerId) subs.push(...(await listSubscriptions(customerId)));
+
+  for (const sub of subs) await syncSubscription(sub, new Date(sub.updated_at || Date.now()), req.user);
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  res.json({ user: publicUser(user), pending: !subs.length });
 });
 
 /* -> { url } of Paddle's customer portal (cancel, switch plan, update card) */
@@ -59,9 +99,11 @@ webhookRouter.post("/billing/webhook", express.raw({ type: "*/*", limit: "1mb" }
   res.json({ ok: true });
 });
 
-async function syncSubscription(sub, occurredAt) {
+/* `known`: the user when the caller has already matched them (/billing/sync) */
+async function syncSubscription(sub, occurredAt, known) {
   const userId = sub.custom_data && sub.custom_data.userId;
   const user =
+    known ||
     (userId && (await prisma.user.findUnique({ where: { id: userId } }))) ||
     (sub.customer_id && (await prisma.user.findUnique({ where: { paddleCustomerId: sub.customer_id } })));
   if (!user) {
@@ -71,7 +113,7 @@ async function syncSubscription(sub, occurredAt) {
 
   /* events can arrive out of order: ignore anything older than what we have */
   const existing = await prisma.subscription.findUnique({ where: { id: sub.id } });
-  if (existing && existing.lastEventAt > occurredAt) return;
+  if (existing && existing.lastEventAt > occurredAt) return recomputePlan(user, sub.customer_id);
 
   const item = (sub.items || [])[0] || {};
   const price = item.price || {};
@@ -86,13 +128,17 @@ async function syncSubscription(sub, occurredAt) {
   };
   await prisma.subscription.upsert({ where: { id: sub.id }, create: { id: sub.id, ...fields }, update: fields });
 
-  /* recompute the plan from all of the user's subscriptions */
+  await recomputePlan(user, sub.customer_id);
+}
+
+/* the plan follows all of the user's subscriptions */
+async function recomputePlan(user, customerId) {
   const active = await prisma.subscription.findMany({ where: { userId: user.id, status: { in: ACTIVE } } });
   const ends = active.map((s) => (s.currentPeriodEnd ? s.currentPeriodEnd.getTime() : 0));
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      paddleCustomerId: user.paddleCustomerId || sub.customer_id || null,
+      paddleCustomerId: user.paddleCustomerId || customerId || null,
       plan: active.length ? "PRO" : "FREE",
       planExpiresAt: active.length ? new Date(Math.max(...ends) + GRACE_MS) : null,
     },

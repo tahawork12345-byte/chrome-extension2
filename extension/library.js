@@ -5,8 +5,8 @@
      - still 4K wallpapers from Wallhaven (WALLHAVEN_URL, SFW only), called
        from here — it needs no key;
      - live wallpapers from Pixabay Videos and WallpaperWaves, searched
-       through the backend (GET /wallpapers/live) so the API key stays there. Everyone sees the
-       thumbnails; the video link is only in the answer for Pro.
+       through the backend (GET /wallpapers/live) so the API key stays there.
+   A free account may set PRO_CONFIG.freeWallpapers of them (pro.js counts).
    The chosen one is kept in settings.background.online (mode "online")
    and app.js shows it. Search results live in memory for this page only.
    Starred wallpapers are kept in "wp:favs" (newest first, synced with the
@@ -125,7 +125,7 @@
       source: v.source === "wallpaperwaves" ? "wallpaperwaves" : "pixabay",
       kind: "video",
       thumb: v.thumb,
-      src: https(v.video) ? v.video : null, // null: locked (not Pro)
+      src: https(v.video) ? v.video : null,
       width: Number(v.width) || 0,
       height: Number(v.height) || 0,
       credit: String(v.credit || "").slice(0, 80),

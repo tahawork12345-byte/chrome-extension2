@@ -70,9 +70,17 @@ function paidPro(user) {
   return user.plan === "PRO" && (!user.planExpiresAt || user.planExpiresAt > new Date());
 }
 
-/* what Pro features check: while everything is free (env.allFree), everyone */
+/* every new account gets Pro free for its first days (TRIAL_DAYS),
+   counted from when it was created, i.e. the first sign-in */
+export function trialEndsAt(user) {
+  return new Date(new Date(user.createdAt).getTime() + env.trialDays * 86_400_000);
+}
+const inTrial = (user) => env.trialDays > 0 && trialEndsAt(user) > new Date();
+
+/* what Pro features check: while everything is free (env.allFree), everyone;
+   otherwise a paid plan or the free trial */
 export function isPro(user) {
-  return env.allFree || paidPro(user);
+  return env.allFree || paidPro(user) || inTrial(user);
 }
 
 export function publicUser(user) {
@@ -83,6 +91,7 @@ export function publicUser(user) {
     avatarUrl: user.avatarUrl,
     plan: paidPro(user) ? "PRO" : "FREE", // the real plan, for billing; features ask isPro()
     planExpiresAt: user.planExpiresAt,
+    trialEndsAt: env.trialDays > 0 ? trialEndsAt(user) : null,
     hasPassword: Boolean(user.passwordHash),
     hasGoogle: Boolean(user.googleId),
   };

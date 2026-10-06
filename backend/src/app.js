@@ -32,10 +32,10 @@ app.get("/health", (req, res) => {
 });
 
 /* what the extension needs before sign-in: whether everything is free
-   (ALL_FREE in .env) */
+   (ALL_FREE in .env) and how long the free trial is (TRIAL_DAYS) */
 app.get("/config", (req, res) => {
   res.set("Cache-Control", "public, max-age=60");
-  res.json({ allFree: env.allFree });
+  res.json({ allFree: env.allFree, trialDays: env.trialDays });
 });
 
 app.use(authRouter);

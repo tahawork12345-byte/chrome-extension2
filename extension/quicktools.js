@@ -666,8 +666,8 @@
       h("span", { class: "qt-pro-tag", text: "PRO" }),
       h("p", { text }),
       h("button", {
-        type: "button", class: "qt-btn is-primary", text: A && A.signedIn() ? "Upgrade — $5/month" : "Sign in to upgrade",
-        onclick: () => (A && A.signedIn() ? A.upgrade("month").catch((e) => alert(e.message)) : AS.open("account")),
+        type: "button", class: "qt-btn is-primary", text: A && A.signedIn() ? "See Atlas Pro" : "Sign in to upgrade",
+        onclick: () => (A && A.signedIn() && window.AtlasPro ? AtlasPro.open("Atlas Pro", text) : AS.open("account")),
       }));
   }
 
@@ -1134,6 +1134,7 @@
     (hasChrome && chrome.runtime.id ? "https://chromewebstore.google.com/detail/" + chrome.runtime.id : "https://chromewebstore.google.com/");
   const privacyUrl = () => {
     if (ABOUT.privacyUrl) return ABOUT.privacyUrl;
+    if (ABOUT.siteUrl) return String(ABOUT.siteUrl).replace(/\/+$/, "") + "/privacy";
     const api = typeof ACCOUNT_CONFIG !== "undefined" && ACCOUNT_CONFIG.api ? String(ACCOUNT_CONFIG.api).replace(/\/+$/, "") : "";
     return api ? api + "/privacy.html" : "";
   };
@@ -1178,7 +1179,11 @@
         link("FAQs", () => go("faq")),
         link("Changelog", () => go("changelog")),
         privacyUrl() ? link("Privacy", () => openUrl(privacyUrl())) : null,
-        AS.exportSettings ? link("Export backup", () => { AS.exportSettings(); say("Backup saved to your downloads."); }) : null),
+        AS.exportSettings ? link("Export backup", () => {
+          if (window.AtlasPro && AtlasPro.need("Backup is part of Atlas Pro.")) return;
+          AS.exportSettings();
+          say("Backup saved to your downloads.");
+        }) : null),
       h("a", { class: "qt-foot-credit", href: CREDIT.url, target: "_blank", rel: "noopener" },
         h("span", { text: "Built by" }),
         h("strong", { text: CREDIT.name }),
@@ -1192,8 +1197,9 @@
     ["I forgot my private folder password.", "It can't be recovered — the contents are encrypted with it. Customize → Privacy lets you delete the folder and start again."],
     ["Why doesn't the site blocker block a site?", "Check that “Block these sites” is on, and, with “Only at certain times”, that it's inside those times. A running break lifts it for 5 minutes."],
     ["The assistant won't hear me.", "Allow the microphone for Atlas when Chrome asks. If it was blocked, the assistant offers an “Allow microphone” button."],
-    ["How do I back up everything?", "Export Backup (below) saves your settings to a file; Customize → Backup imports it again."],
-    ["What does Pro add?", "More habits and saved sessions, 30 days of stats with a weekly email, and the 4K wallpaper library."],
+    ["How do I back up everything?", "With Atlas Pro: Export Backup (below) saves your settings to a file; Customize → Backup imports it again."],
+    ["What does Pro add?", "Every theme and cursor, unlimited online and live 4K wallpapers (free accounts get 5), the private space, backup, more habits and saved sessions, 30 days of stats with a weekly email, sync, the AI day planner and calendar."],
+    ["Is there a free trial?", "Yes — sign in with Google and a new account gets every Pro feature free for 7 days. After that, subscribe in Customize → Account to keep them."],
   ].filter(([q]) => !(window.AtlasAccount && AtlasAccount.allFree && /Pro/.test(q))); // no plans to explain while all is free
   function renderFaq() {
     P.sub.textContent = "Quick answers";

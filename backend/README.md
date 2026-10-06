@@ -101,7 +101,7 @@ Send `Authorization: Bearer <accessToken>` on every route marked 🔒.
 | PUT 🔒 Pro | `/stats/week` | `{ weeks: [{ week: "YYYY-MM-DD" (a Monday), data }] }` → `{ ok }` |
 | GET | `/cron/weekly-email` | Vercel Cron only (`Bearer $CRON_SECRET`). Emails last week's summary. |
 | GET | `/wallpapers/sources` | → `{ pixabay, wallhaven }`: whether Pixabay is on, and the Wallhaven search URL (or `null` when off). |
-| GET | `/wallpapers/live?q=&page=` | Pixabay video search (no `q` = popular) → `{ items: [{ id, thumb, video, width, height, duration, credit, creditUrl, link }], page, more, pro }`. `video` is only filled in for Pro. |
+| GET | `/wallpapers/live?q=&page=` | Pixabay video search (no `q` = popular) → `{ items: [{ id, thumb, video, width, height, duration, credit, creditUrl, link }], page, more, pro }`. `video` is filled in for everyone; free accounts may set `PRO_CONFIG.freeWallpapers` (5) online wallpapers, counted by the extension. |
 | GET | `/billing/config` | → `{ environment, clientToken, prices }` |
 | POST 🔒 | `/billing/checkout` | `{ interval: "month" \| "year" }` → `{ url }` (open it in a new tab) |
 | POST 🔒 | `/billing/portal` | → `{ url }` (the page for cancelling or updating the card) |

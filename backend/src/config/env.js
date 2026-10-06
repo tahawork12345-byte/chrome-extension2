@@ -9,6 +9,9 @@ const int = (v, d) => (Number.isFinite(Number(v)) && v !== "" && v != null ? Num
 export const env = {
   port: int(process.env.PORT, 3001),
   appUrl: (process.env.APP_URL || "http://localhost:3001").replace(/\/$/, ""),
+  /* the marketing site (repo root, its own Vercel project): checkout and the
+     legal pages live there. Empty = this backend's own public/ pages. */
+  siteUrl: (process.env.SITE_URL || "").replace(/\/$/, ""),
   allowedExtensionIds: list(process.env.ALLOWED_EXTENSION_IDS),
 
   jwtSecret: process.env.JWT_SECRET || "",
@@ -20,6 +23,8 @@ export const env = {
      Anything else (or unset): the Pro plan is on. The extension reads this
      through GET /config, so this is the only switch. */
   allFree: process.env.ALL_FREE === "true",
+  /* days of Pro a new account gets for free (0 = no trial) */
+  trialDays: int(process.env.TRIAL_DAYS, 7),
 
   geminiKey: process.env.GEMINI_API_KEY || "",
   geminiModel: process.env.GEMINI_MODEL || "gemini-3.1-flash-lite",

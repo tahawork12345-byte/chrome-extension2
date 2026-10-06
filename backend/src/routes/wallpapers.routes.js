@@ -47,7 +47,7 @@ function bestFile(videos) {
   return (fit.length ? fit : files).sort((a, b) => b.width - a.width)[0] || null;
 }
 
-async function pixabayPage(q, page, pro) {
+async function pixabayPage(q, page) {
   const params = new URLSearchParams({
     key: env.pixabay.key,
     per_page: String(PER_PAGE),
@@ -71,7 +71,7 @@ async function pixabayPage(q, page, pro) {
         id: String(v.id),
         source: "pixabay",
         thumb,
-        video: pro ? file.url : null,
+        video: file.url,
         width: file.width,
         height: file.height,
         duration: v.duration || 0,
@@ -100,7 +100,7 @@ async function wavesCategory() {
 /* each post links its full 4K file through download.php */
 const WAVES_VIDEO = /https:\/\/wallpaperwaves\.com\/download\.php\?video=[^"'\s<>]+?\.mp4/i;
 
-async function wavesPage(q, page, pro) {
+async function wavesPage(q, page) {
   const params = new URLSearchParams({
     categories: String(await wavesCategory()),
     per_page: String(WAVES_PER_PAGE),
@@ -128,7 +128,7 @@ async function wavesPage(q, page, pro) {
         id: String(p.id),
         source: "wallpaperwaves",
         thumb,
-        video: pro ? m[0].replace(/&#0?38;|&amp;/g, "&") : null,
+        video: m[0].replace(/&#0?38;|&amp;/g, "&"),
         width: 3840,
         height: 2160,
         duration: 0,
@@ -153,8 +153,9 @@ wallpapersRouter.get("/wallpapers/sources", (req, res) => {
    width, height, duration, credit, creditUrl, link }], page, more, pro }.
    Pixabay's and WallpaperWaves' results take turns, and one source failing
    still gives the other's. No q = Pixabay's popular videos and
-   WallpaperWaves' newest. Anyone sees the list and the thumbnails; the
-   video link is only in the answer for Pro. */
+   WallpaperWaves' newest. Everyone gets the video links: free accounts
+   may set a few online wallpapers (PRO_CONFIG.freeWallpapers, counted by
+   the extension); `pro` says whether the limit applies. */
 wallpapersRouter.get("/wallpapers/live", async (req, res) => {
   if (!env.pixabay.on && !env.wallpaperwaves.on) throw new HttpError(404, "Live wallpapers are turned off (PIXABAY / WALLPAPERWAVES).", { code: "off" });
   const runs = [pixabayOn() && pixabayPage, wavesOn() && wavesPage].filter(Boolean);
@@ -163,7 +164,7 @@ wallpapersRouter.get("/wallpapers/live", async (req, res) => {
   const page = Math.min(20, Math.max(1, parseInt(req.query.page, 10) || 1)); // Pixabay stops at 500 results
 
   const pro = await proFor(req);
-  const results = await Promise.allSettled(runs.map((run) => run(q, page, pro)));
+  const results = await Promise.allSettled(runs.map((run) => run(q, page)));
   const ok = results.filter((x) => x.status === "fulfilled").map((x) => x.value);
   if (!ok.length) throw results[0].reason;
 

@@ -1,6 +1,7 @@
 import { env } from "../config/env.js";
 
-/* Only the extension (and localhost pages, for testing) may call the API.
+/* Only the extension, the marketing site (SITE_URL) and localhost pages
+   (for testing) may call the API.
    Requests with no Origin (curl, Paddle webhooks) pass through; auth and
    signature checks protect those routes. */
 export function allowedOrigin(origin) {
@@ -11,7 +12,7 @@ export function allowedOrigin(origin) {
     return !ids.length || ids.includes(ext[1]) ? origin : "";
   }
   if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
-  if (origin === env.appUrl) return origin;
+  if (origin === env.appUrl || (env.siteUrl && origin === env.siteUrl)) return origin;
   return "";
 }
 

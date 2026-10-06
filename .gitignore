@@ -37,3 +37,6 @@ extension/wallpapers/old.mp4
 .env.*
 !.env.example
 store-assets/*.zip
+
+# Vercel CLI / local builds
+.vercel
