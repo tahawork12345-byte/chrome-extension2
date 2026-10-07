@@ -2,9 +2,10 @@
    What a free account may use, and what it sees when it reaches a limit:
      - need(text): false for Pro; otherwise opens the upgrade box and
        answers true (the caller stops there);
-     - wallpaper(key): online wallpapers — PRO_CONFIG.freeWallpapers of
-       them for free (stills and live together, kept in "wp:used"; one
-       already used can always be set again);
+     - wallpaper(key): wallpapers — PRO_CONFIG.freeWallpapers of them for
+       free (built-in, online stills and live together, kept in "wp:used";
+       one already used can always be set again, and the first built-in
+       one, which a new tab starts on, never counts);
      - FREE_THEMES / FREE_CURSORS: the theme presets and cursor packs a
        free account can choose; the rest are Pro.
    Every new account gets Pro free for its first days (TRIAL_DAYS on the
@@ -78,6 +79,8 @@
     cloud: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.5 1.6A3.8 3.8 0 0 1 17.5 18.5Z"/><path d="m9.5 13.5 2.5-2.5 2.5 2.5M12 11v5"/>',
     spark: '<path d="M12 3.5 13.8 9 19.5 10.5 13.8 12 12 17.5 10.2 12 4.5 10.5 10.2 9Z"/><path d="M18.5 16.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8Z"/>',
     check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+    shield: '<path d="M12 3.5 19 6v5.5c0 4.3-3 7.6-7 9-4-1.4-7-4.7-7-9V6Z"/><path d="m8.5 8.5 7 7"/>',
   };
   const svg = (name, cls) => {
     const s = h("span", { class: cls || "pro-ico", "aria-hidden": "true" });
@@ -85,9 +88,11 @@
     return s;
   };
   const PERKS = [
-    ["palette", "Every theme & cursor", "All presets, every cursor pack, and your own"],
-    ["image", "Unlimited 4K wallpapers", "Stills and live videos from the online library"],
+    ["palette", "Every theme & cursor", "All presets, your own colours, glass and fonts, every cursor"],
+    ["image", "Unlimited 4K wallpapers", "Stills and live videos — free accounts get " + FREE_WALLPAPERS],
+    ["shield", "Site blocker", "Block distracting sites, on a schedule or all day"],
     ["lock", "Private space", "An encrypted corner for what's only yours"],
+    ["mic", "Voice typing & assistant voice", "Talk to search and chat, hear answers read out"],
     ["cloud", "Sync & backup", "Everything in step on every computer"],
     ["spark", "AI planner & stats", "Day planner, calendar and 30-day insights"],
   ];
@@ -277,13 +282,22 @@
   function wallpaper(key) {
     if (isPro() || used.includes(key)) return true;
     if (used.length >= FREE_WALLPAPERS) {
-      openBox("Atlas Pro", "You've used your " + FREE_WALLPAPERS + " free online wallpapers. Atlas Pro sets as many 4K and live wallpapers as you like.");
+      openBox("Atlas Pro", "You've used your " + FREE_WALLPAPERS + " free wallpapers. Atlas Pro sets as many built-in, 4K and live wallpapers as you like.");
       return false;
     }
     used = used.concat(key);
     put({ [USED_KEY]: used });
     return true;
   }
+
+  /* the built-in wallpapers (config.js) share the count */
+  const firstBuiltIn = () => (typeof WALLPAPERS !== "undefined" && WALLPAPERS[0] ? WALLPAPERS[0].id : "");
+  const canUseBuiltIn = (id) => id === firstBuiltIn() || canUse("bi:" + id);
+  const builtIn = (id) => id === firstBuiltIn() || wallpaper("bi:" + id);
+  /* the order a free account sees wallpapers in: its own first (already
+     chosen, or the free built-in one), then ones it can still choose, then
+     the locked ones. Pro: all 0, so lists keep their own order. */
+  const rank = (key) => (isPro() || used.includes(key) || key === "bi:" + firstBuiltIn() ? 0 : canUse(key) ? 1 : 2);
 
   /* ---------- after the server has answered ---------- */
   /* only when this computer already thinks the account isn't Pro (a paid
@@ -433,6 +447,9 @@
     watchPurchase,
     wallpaper,
     canUse,
+    builtIn,
+    canUseBuiltIn,
+    rank,
     wallpapersLeft,
     freeWallpapers: FREE_WALLPAPERS,
     usedReady,

@@ -148,18 +148,22 @@ export function Footer() {
   );
 }
 
-/* fades a block in the first time it scrolls into view */
+/* fades a block in each time it scrolls into view, and back out when it leaves */
 export function Reveal({ children, className = "", delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
   const [seen, setSeen] = useState(false);
+  /* which side it left from, so it comes back in from that side */
+  const [above, setAbove] = useState(false);
   useEffect(() => {
     if (!el) return;
     if (!("IntersectionObserver" in window)) return setSeen(true);
+    /* plays every time it scrolls into view, and runs in reverse when it leaves */
     const io = new IntersectionObserver(
-      (es) => {
-        if (es.some((e) => e.isIntersecting)) {
-          setSeen(true);
-          io.disconnect();
+      ([e]) => {
+        if (e.isIntersecting) setSeen(true);
+        else {
+          setSeen(false);
+          setAbove(e.boundingClientRect.top < (e.rootBounds?.top ?? 0));
         }
       },
       { rootMargin: "0px 0px -10% 0px" },
@@ -168,7 +172,7 @@ export function Reveal({ children, className = "", delay = 0 }: { children: Reac
     return () => io.disconnect();
   }, [el]);
   return (
-    <div ref={setEl} className={"reveal " + (seen ? "is-in " : "") + className} style={{ transitionDelay: delay + "ms" }}>
+    <div ref={setEl} className={"reveal " + (seen ? "is-in " : above ? "from-top " : "") + className} style={{ transitionDelay: seen ? delay + "ms" : "0ms" }}>
       {children}
     </div>
   );

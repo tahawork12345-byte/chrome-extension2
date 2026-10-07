@@ -43,7 +43,7 @@
       customId: 0,
       customName: "",
       /* the online library's pick (library.js): kind "image" | "video" */
-      online: { id: "", kind: "", src: "", thumb: "", source: "", credit: "", creditUrl: "", link: "" },
+      online: { id: "", kind: "", src: "", preview: "", thumb: "", source: "", credit: "", creditUrl: "", link: "" },
       brightness: 100,
       saturate: 100,
       blur: 0,
@@ -961,6 +961,23 @@
   const P = () => window.AtlasPro;
   const proLocked = (free) => !!P() && !P().isPro() && !free;
   const needPro = (text) => !!P() && P().need(text);
+  const THEME_PRO = "Customizing your theme (colours, glass and font) is part of Atlas Pro. The Sand theme is free.";
+  const VOICE_PRO = "Voice typing and the assistant's voice are part of Atlas Pro.";
+  const PRIVATE_PRO = "The private space is part of Atlas Pro.";
+
+  /* a group that is part of Atlas Pro: a free account sees its controls
+     dimmed under a lock, and a click anywhere on it opens the upgrade box */
+  function proGroup(text, title, ...rows) {
+    if (!proLocked(false)) return group(title, ...rows);
+    return h("section", { class: "cz-group is-pro-locked" },
+      title ? h("h3", { class: "cz-gtitle", text: title }) : null,
+      h("div", { class: "cz-pro-wrap" },
+        h("div", { class: "cz-pro-rows", inert: true, "aria-hidden": "true" }, ...rows),
+        h("button", {
+          type: "button", class: "cz-pro-cover", "aria-label": (title || "This") + " — unlock with Atlas Pro",
+          onclick: () => needPro(text),
+        }, h("span", { class: "cz-pro-badge", text: "🔒 PRO" }))));
+  }
 
   function presetButtons() {
     const wrap = h("div", { class: "cz-presets" });
@@ -990,11 +1007,24 @@
     if (!free) return;
     const next = clone(settings);
     let changed = false;
-    if (next.theme.preset !== "custom" && !free.freeTheme(next.theme.preset)) {
-      const p = PRESETS.find((x) => free.freeTheme(x.id)) || PRESETS[0];
-      Object.assign(next.theme, { preset: p.id, accent: p.accent, ink: p.ink, glass: p.glass });
+    /* the free theme, as it comes: a preset and no customizing */
+    const p = PRESETS.find((x) => free.freeTheme(x.id)) || PRESETS[0];
+    const plain = Object.assign(clone(DEFAULTS.theme), { preset: p.id, accent: p.accent, ink: p.ink, glass: p.glass });
+    if (Object.keys(plain).some((k) => next.theme[k] !== plain[k])) {
+      next.theme = plain;
       changed = true;
     }
+    /* the site blocker is Pro: stop blocking, by itself or while focusing
+       (the list is kept) */
+    if (next.blocker && next.blocker.on) {
+      next.blocker.on = false;
+      changed = true;
+    }
+    if (next.focus && next.focus.block) {
+      next.focus.block = false;
+      changed = true;
+    }
+    if (V && V.isUnlocked && V.isUnlocked()) V.lock();
     if (next.cursor && !free.freeCursor(next.cursor.style)) {
       next.cursor.style = "default";
       changed = true;
@@ -1013,16 +1043,16 @@
       reset: "theme",
       render: () => [
         group("Presets", presetButtons()),
-        group("Colours",
+        proGroup(THEME_PRO, "Colours",
           colorRow("Accent", "theme.accent"),
           colorRow("Text", "theme.ink"),
           colorRow("Glass tint", "theme.glass")),
-        group("Glass",
+        proGroup(THEME_PRO, "Glass",
           rangeRow("Opacity", "theme.glassAlpha", 0, 95, 1, "%"),
           rangeRow("Blur", "theme.blur", 0, 300, 5, "%"),
           rangeRow("Borders", "theme.border", 0, 60, 1, "%"),
           rangeRow("Roundness", "theme.radius", 0, 250, 5, "%")),
-        group("Type",
+        proGroup(THEME_PRO, "Type",
           selectRow("Font", "theme.font", Object.entries(FONTS).map(([k, f]) => [k, f.label]))),
       ],
     },
@@ -1214,6 +1244,7 @@
     {
       id: "privacy",
       label: "Privacy",
+      pro: PRIVATE_PRO,
       render: () => privacyTab(),
     },
     {
@@ -1299,7 +1330,7 @@
         })),
       note("Chrome's menus and settings change there: under “Preferred languages”, choose ⋮ → “Display Google Chrome in this language”, then relaunch.")));
 
-    out.push(group("Voice typing",
+    out.push(proGroup(VOICE_PRO, "Voice typing",
       Voice && !Voice.canListen ? note("This browser can't do voice typing.") : null,
       noTranslate(selectRow("Listen for", "language.voiceLang", langOptions(["auto", "Same as above (or Chrome's)"]))),
       toggleRow("Microphone on the search bar", "language.searchMic"),
@@ -1309,7 +1340,7 @@
       h("div", { class: "cz-btns" },
         h("button", { type: "button", class: "cz-btn", text: "Allow microphone…", onclick: () => Voice && Voice.openMicSetup() }))));
 
-    out.push(group("Assistant voice",
+    out.push(proGroup(VOICE_PRO, "Assistant voice",
       noTranslate(selectRow("Answers in", "language.ai.reply", langOptions(["auto", "The language I use"]))),
       toggleRow("Read answers out loud", "language.ai.speak"),
       voicePicker(),
@@ -1751,6 +1782,13 @@
     if (!V || !V.supported) {
       return [group("Private space", note("This browser can't encrypt data here, so the private space isn't available."))];
     }
+    if (proLocked(false)) {
+      return [group("Private space · Atlas Pro",
+        note("A hidden, password-locked folder for shortcuts and notes, encrypted on this computer." +
+          (V.exists() ? " Yours is kept safe and encrypted — it opens again as soon as you're on Atlas Pro." : "")),
+        h("div", { class: "cz-btns" },
+          h("button", { type: "button", class: "cz-btn is-primary", text: "Unlock with Atlas Pro", onclick: () => needPro(PRIVATE_PRO) })))];
+    }
     const msgEl = () => h("p", { class: "cz-msg", role: "alert", hidden: true });
     const say = (el, text, err) => { el.textContent = text; el.hidden = false; el.classList.toggle("is-error", !!err); };
     const password = (label, auto) => h("input", {
@@ -1965,8 +2003,12 @@
     const cards = list.map((r, i) => {
       const pick = h("select", {
         class: "cz-select", "aria-label": "Wallpaper",
-        onchange: () => { r.wallpaper = pick.value; save(); },
-      }, wps.map((w) => h("option", { value: w.id, text: w.label })));
+        onchange: () => {
+          if (P() && !P().builtIn(pick.value)) { pick.value = r.wallpaper || ""; return; }
+          r.wallpaper = pick.value;
+          save();
+        },
+      }, wps.map((w) => h("option", { value: w.id, text: w.label + (P() && !P().canUseBuiltIn(w.id) ? " 🔒" : "") })));
       /* a rule whose wallpaper went missing (a Pro one, now locked) shows the
          first one — and uses it, rather than silently never firing */
       if (!wps.some((w) => w.id === r.wallpaper) && wps[0]) r.wallpaper = wps[0].id;
@@ -2317,15 +2359,15 @@
       if (!pro) { grid.dataset.keys = ""; paint(); }
       libDone();
       libPending = it.key;
-      /* the wallpaper may take a moment (a live one downloads whole, often
-         100+ MB); if it never says, stop spinning */
-      libPendingTimer = setTimeout(libDone, it.kind === "video" ? 300000 : 20000);
+      /* a live one starts on its preview within a few seconds (app.js);
+         if it never says, stop spinning */
+      libPendingTimer = setTimeout(libDone, 20000);
       grid.querySelectorAll(".cz-pwp").forEach((b) => {
         b.classList.toggle("is-on", b.dataset.key === it.key);
         b.classList.toggle("is-loading", b.dataset.key === it.key);
       });
       set("background.online", {
-        id: it.key, kind: it.kind, src: it.src, thumb: it.thumb, source: it.source,
+        id: it.key, kind: it.kind, src: it.src, preview: it.preview || "", thumb: it.thumb, source: it.source,
         credit: it.credit, creditUrl: it.creditUrl, link: it.link,
       });
       set("background.mode", "online");
@@ -2400,11 +2442,15 @@
           .filter(Boolean).join(" and ").replace(/^./, (c) => c.toUpperCase()) + (src.wallhaven || src.live ? "." : "") +
           (!pro && free ? " Free: " + free.wallpapersLeft() + " of " + free.freeWallpapers + " left — Atlas Pro has no limit." : "");
       about.hidden = !about.textContent;
-      const keys = st.items.map((i) => i.key).join("|");
+      /* a free account's wallpapers come first, the locked ones last */
+      const items = free && !pro
+        ? st.items.map((it, i) => [free.rank(it.key), i, it]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2])
+        : st.items;
+      const keys = items.map((i) => i.key).join("|");
       if (keys !== grid.dataset.keys) {
         grid.dataset.keys = keys;
         grid.textContent = "";
-        st.items.forEach((it) => grid.append(card(it)));
+        items.forEach((it) => grid.append(card(it)));
       } else {
         grid.querySelectorAll(".cz-pwp").forEach((c) => paintFav(c, L.isFav(c.dataset.key)));
       }
@@ -2428,20 +2474,47 @@
   }
 
   /* the built-in live wallpapers; picking one hands over to app.js */
+  /* a free account chooses a few wallpapers, built-in and online together
+     (pro.js); the rest show a lock and open the upgrade box */
   function wallpaperButtons() {
     const wrap = h("div", { class: "cz-wps" });
     const list = typeof WALLPAPERS !== "undefined" ? WALLPAPERS : [];
     const current = app.currentWallpaper ? app.currentWallpaper() : null;
+    const left = note("");
+    const paint = () => {
+      const free = P();
+      const pro = !free || free.isPro();
+      wrap.querySelectorAll(".cz-wp").forEach((b) => {
+        const locked = !pro && !free.canUseBuiltIn(b.dataset.id);
+        b.classList.toggle("is-locked", locked);
+        b.title = locked ? b.dataset.label + " — Atlas Pro" : "";
+        const icon = b.querySelector(".cz-lock");
+        if (locked && !icon) b.append(h("span", { class: "cz-lock", "aria-hidden": "true", text: "🔒" }));
+        else if (!locked && icon) icon.remove();
+      });
+      /* the free ones on top, the locked ones after */
+      if (!pro) {
+        Array.from(wrap.children)
+          .map((b, i) => [free.rank("bi:" + b.dataset.id), i, b])
+          .sort((a, b) => a[0] - b[0] || a[1] - b[1])
+          .forEach(([, , b]) => wrap.append(b));
+      }
+      left.textContent = pro ? "" : "Free: " + free.wallpapersLeft() + " of " + free.freeWallpapers + " wallpaper picks left (built-in and online together). Atlas Pro has no limit.";
+      left.hidden = !left.textContent;
+    };
     list.forEach((wp) => {
       wrap.append(h("button", {
-        type: "button", class: "cz-wp" + (wp.id === current ? " is-on" : ""), "data-id": wp.id, text: wp.label,
+        type: "button", class: "cz-wp" + (wp.id === current ? " is-on" : ""), "data-id": wp.id, "data-label": wp.label, text: wp.label,
         onclick: () => {
+          if (P() && !P().builtIn(wp.id)) return;
           if (app.setWallpaper) app.setWallpaper(wp.id);
           wrap.querySelectorAll(".cz-wp").forEach((b) => b.classList.toggle("is-on", b.dataset.id === wp.id));
+          paint();
         },
       }));
     });
-    return wrap;
+    paint();
+    return h("div", null, wrap, left);
   }
 
   /* an image or video from disk, kept in IndexedDB */
@@ -2589,6 +2662,8 @@
 
   function switchTab(id) {
     if (id === activeTab) return;
+    const pro = TABS.find((t) => t.id === id);
+    if (pro && pro.pro && proLocked(false) && needPro(pro.pro)) return;
     const from = TABS.findIndex((t) => t.id === activeTab);
     const to = TABS.findIndex((t) => t.id === id);
     activeTab = id;
@@ -2603,6 +2678,8 @@
       const on = b.dataset.id === tab.id;
       b.classList.toggle("is-on", on);
       b.setAttribute("aria-selected", String(on));
+      const t = TABS.find((x) => x.id === b.dataset.id);
+      b.classList.toggle("is-pro", !!(t && t.pro && proLocked(false)));
     });
     const scroll = body.scrollTop;
     conds = [];
@@ -2698,9 +2775,18 @@
       if (isOpen() && activeTab === "privacy") renderTab();
     });
   }
-  /* the Account tab follows sign-in and sign-out, from any tab */
+  /* the Account tab follows sign-in and sign-out, from any tab; the Pro
+     locks follow the plan (a trial ending, a purchase) */
+  let wasPro = null;
   if (Acc) {
-    Acc.on(() => { paintHeadAcc(); if (isOpen() && activeTab === "account") renderTab(); });
+    Acc.on(() => {
+      paintHeadAcc();
+      const pro = Acc.isPro();
+      const flipped = wasPro !== null && pro !== wasPro;
+      wasPro = pro;
+      if (isOpen() && (activeTab === "account" || flipped)) renderTab();
+    });
+    if (Acc.ready) Promise.resolve(Acc.ready).then(() => { wasPro = Acc.isPro(); });
     if (Acc.ready) Promise.resolve(Acc.ready).then(paintHeadAcc, paintHeadAcc);
   }
   paintHeadAcc();

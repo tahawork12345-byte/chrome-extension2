@@ -47,6 +47,15 @@ function bestFile(videos) {
   return (fit.length ? fit : files).sort((a, b) => b.width - a.width)[0] || null;
 }
 
+/* a light copy that starts playing in a moment: the smallest landscape
+   size of at least 1280 wide below the full one (the extension streams it
+   while the 4K file downloads behind it) */
+function previewFile(videos, full) {
+  return Object.values(videos || {})
+    .filter((f) => f && /^https:\/\//.test(f.url || "") && f.width >= f.height && f.width >= 1280 && f.width < full.width)
+    .sort((a, b) => a.width - b.width)[0] || null;
+}
+
 async function pixabayPage(q, page) {
   const params = new URLSearchParams({
     key: env.pixabay.key,
@@ -67,11 +76,13 @@ async function pixabayPage(q, page) {
       const file = bestFile(v.videos);
       const thumb = file && ["small", "medium", "large"].map((k) => v.videos[k] && v.videos[k].thumbnail).find((t) => /^https:\/\//.test(t || ""));
       if (!file || !thumb) return null;
+      const light = previewFile(v.videos, file);
       return {
         id: String(v.id),
         source: "pixabay",
         thumb,
         video: file.url,
+        preview: light ? light.url : "",
         width: file.width,
         height: file.height,
         duration: v.duration || 0,
@@ -99,6 +110,22 @@ async function wavesCategory() {
 
 /* each post links its full 4K file through download.php */
 const WAVES_VIDEO = /https:\/\/wallpaperwaves\.com\/download\.php\?video=[^"'\s<>]+?\.mp4/i;
+/* and plays a light 720p clip on its page, usually named after the cover
+   image. Found once per post and remembered ("" = none). */
+const WAVES_PREVIEW = /https:\/\/wallpaperwaves\.com\/wp-content\/uploads\/[^"'\s<>]+?-preview\.mp4/i;
+const wavesPreviews = new Map();
+async function wavesPreview(id, html, cover) {
+  if (wavesPreviews.has(id)) return wavesPreviews.get(id);
+  let url = (WAVES_PREVIEW.exec(html) || [""])[0];
+  const guess = (cover || "").replace(/-wallpaperwaves-com\.\w+$/, "-preview.mp4");
+  if (!url && guess !== cover) {
+    const r = await fetch(guess, { method: "HEAD", signal: AbortSignal.timeout(2500) }).catch(() => null);
+    if (r && r.ok) url = guess;
+  }
+  if (wavesPreviews.size > 2000) wavesPreviews.clear();
+  wavesPreviews.set(id, url);
+  return url;
+}
 
 async function wavesPage(q, page) {
   const params = new URLSearchParams({
@@ -114,9 +141,10 @@ async function wavesPage(q, page) {
   if (!r.ok) throw new HttpError(502, `WallpaperWaves answered ${r.status}`);
   const data = await r.json();
 
-  const items = (Array.isArray(data) ? data : [])
+  const posts = (Array.isArray(data) ? data : [])
     .map((p) => {
-      const m = WAVES_VIDEO.exec((p.content && p.content.rendered) || "");
+      const html = (p.content && p.content.rendered) || "";
+      const m = WAVES_VIDEO.exec(html);
       const media = ((p._embedded && p._embedded["wp:featuredmedia"]) || [])[0] || {};
       const sizes = (media.media_details && media.media_details.sizes) || {};
       const thumb = ["medium_large", "large", "full"]
@@ -129,6 +157,8 @@ async function wavesPage(q, page) {
         source: "wallpaperwaves",
         thumb,
         video: m[0].replace(/&#0?38;|&amp;/g, "&"),
+        html,
+        cover: media.source_url || "",
         width: 3840,
         height: 2160,
         duration: 0,
@@ -138,6 +168,10 @@ async function wavesPage(q, page) {
       };
     })
     .filter(Boolean);
+  const items = await Promise.all(posts.map(async ({ html, cover, ...item }) => ({
+    ...item,
+    preview: await wavesPreview(item.id, html, cover),
+  })));
   return { items, more: page < (Number(r.headers.get("x-wp-totalpages")) || 0) };
 }
 
@@ -150,7 +184,8 @@ wallpapersRouter.get("/wallpapers/sources", (req, res) => {
 });
 
 /* GET /wallpapers/live?q=&page= -> { items: [{ id, source, thumb, video,
-   width, height, duration, credit, creditUrl, link }], page, more, pro }.
+   preview (a light clip to start on, or ""), width, height, duration,
+   credit, creditUrl, link }], page, more, pro }.
    Pixabay's and WallpaperWaves' results take turns, and one source failing
    still gives the other's. No q = Pixabay's popular videos and
    WallpaperWaves' newest. Everyone gets the video links: free accounts

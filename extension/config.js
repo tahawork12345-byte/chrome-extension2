@@ -214,11 +214,15 @@ const ACCOUNT_CONFIG = {
                   (1 = today only; Pro sees 30 days and the weekly email)
    freeSessions:  tab sessions a free account can save (Quick tools →
                   Tab manager)
-   freeWallpapers: online wallpapers (stills and live together) a free
-                  account can set from Customize > Background > Online.
-                  Also Pro: every theme preset but the first, every cursor
-                  but System, the private space and backup (pro.js). New
-                  accounts get Pro free for TRIAL_DAYS (backend .env).
+   freeWallpapers: wallpapers a free account can choose — built-in, online
+                  stills and live together (the first built-in one is
+                  always free and doesn't count).
+                  Also Pro: every theme preset but the first, customizing
+                  the theme (colours, glass, font), every cursor but
+                  System, the site blocker, the private space (Privacy
+                  tab), voice typing and the assistant's voice, and backup
+                  (pro.js). New accounts get Pro free for TRIAL_DAYS
+                  (backend .env); after that these need a subscription.
    allFree:       only the guess before the backend first answers. The real
                   switch is ALL_FREE in the backend's .env (read through
                   GET /config): true = every Pro feature open to everyone and

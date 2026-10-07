@@ -49,15 +49,46 @@ export const ANIME_TAGS = [
   "Blue Lock",
 ];
 
-/* ---------- small server-side cache ---------- */
+/* ---------- small server-side cache ----------
+   Kept in memory, and also in the edge cache where there is one
+   (Cloudflare), so a fresh worker doesn't start cold. Requests for the
+   same key that arrive together share one upstream call. */
 const cache = new Map<string, { at: number; v: unknown }>();
+const inflight = new Map<string, Promise<unknown>>();
+const edge = () => (globalThis as { caches?: { default?: Cache } }).caches?.default;
+const edgeKey = (key: string) => new Request("https://anime-cache.atlas/" + encodeURIComponent(key));
+
 async function cached<T>(key: string, ms: number, fn: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ms) return hit.v as T;
-  const v = await fn();
-  cache.set(key, { at: Date.now(), v });
-  return v;
+  const running = inflight.get(key);
+  if (running) return running as Promise<T>;
+  const p = (async () => {
+    const c = edge();
+    const r = c && (await c.match(edgeKey(key)).catch(() => undefined));
+    const stored = r ? ((await r.json().catch(() => undefined)) as T | undefined) : undefined;
+    if (stored !== undefined) {
+      cache.set(key, { at: Date.now(), v: stored });
+      return stored;
+    }
+    const v = await fn();
+    cache.set(key, { at: Date.now(), v });
+    if (c) {
+      const res = new Response(JSON.stringify(v), { headers: { "content-type": "application/json", "cache-control": `public, max-age=${Math.round(ms / 1000)}` } });
+      await c.put(edgeKey(key), res).catch(() => {});
+    }
+    return v;
+  })();
+  inflight.set(key, p);
+  try {
+    return await p;
+  } finally {
+    inflight.delete(key);
+  }
 }
+
+/* a slow upstream shouldn't hold the whole page of results hostage */
+const timeout = (ms: number) => (typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(ms) : undefined);
 
 /* ---------- WallpaperWaves: live 4K ---------- */
 const wavesCat = () =>
@@ -91,13 +122,11 @@ async function previewOf(p: WpPost, cover: string) {
   return cached("waves:prev:" + p.id, 864e5, async () => {
     const guess = cover.replace(/-wallpaperwaves-com\.\w+$/, "-preview.mp4");
     if (guess !== cover) {
-      const r = await fetch(guess, { method: "HEAD", headers: UA }).catch(() => null);
+      const r = await fetch(guess, { method: "HEAD", headers: UA, signal: timeout(4000) }).catch(() => null);
       if (r?.ok) return guess;
     }
-    const html = await fetch(p.link, { headers: UA }).then(
-      (r) => (r.ok ? r.text() : ""),
-      () => "",
-    );
+    /* a timeout or network error throws, so it's tried again next time rather than remembered as "no clip" */
+    const html = await fetch(p.link, { headers: UA, signal: timeout(6000) }).then((r) => (r.ok ? r.text() : ""));
     const m = /src="(https:\/\/wallpaperwaves\.com\/wp-content\/uploads\/[^"]+?-preview\.mp4)"/i.exec(html);
     return m ? m[1] : "";
   });
@@ -124,7 +153,7 @@ async function wavesSearch(q: string, page: number): Promise<AnimeResult> {
       const big = m?.source_url || "";
       const small = sizes.medium_large?.source_url || sizes.large?.source_url || big;
       if (!/^https:\/\//.test(big)) return null;
-      const media = await previewOf(post, big);
+      const media = await previewOf(post, big).catch(() => "");
       if (!media) return null;
       return {
         id: "ww" + post.id,

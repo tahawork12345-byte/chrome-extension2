@@ -229,7 +229,18 @@
       if (window.AtlasSounds && soundSel.value !== "none") AtlasSounds.play(soundSel.value, { volume: 70 });
     });
     const bl = AS.get().blocker;
-    const blockNote = p.block
+    /* it blocks the site blocker's list, which is part of Atlas Pro */
+    const blockLocked = !!window.AtlasPro && !AtlasPro.isPro();
+    const blockRow = q.switchRow("Block distracting sites", "focus.block", () => q.show("focus"));
+    if (blockLocked) {
+      const sw = blockRow.querySelector("input");
+      sw.checked = false;
+      sw.addEventListener("click", (e) => {
+        e.preventDefault();
+        AtlasPro.need("Blocking sites while you focus uses the site blocker, which is part of Atlas Pro.");
+      });
+    }
+    const blockNote = p.block && !blockLocked
       ? h("p", { class: "qt-empty" }, bl.sites.length
         ? "Blocks your " + bl.sites.length + " site" + (bl.sites.length === 1 ? "" : "s") + " from Site blocker while you focus — breaks from the blocked page are off. "
         : "Your Site blocker list is empty, so nothing is blocked yet. ",
@@ -242,7 +253,7 @@
       q.section("Timer",
         minutes("Focus", "work", 180), minutes("Short break", "short", 60), minutes("Long break", "long", 90), minutes("Long break every", "every", 12)),
       q.section("While focusing",
-        q.switchRow("Block distracting sites", "focus.block", () => q.show("focus")), blockNote,
+        blockRow, blockNote,
         q.switchRow("Dim the wallpaper", "focus.dim"),
         q.switchRow("Timer at the top of the page", "focus.pill")),
       q.section("When time's up",

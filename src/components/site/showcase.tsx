@@ -72,13 +72,46 @@ export function hm(d: Date | null, opts?: { seconds?: boolean }) {
   return opts?.seconds ? `${h}:${m}:${String(d.getSeconds()).padStart(2, "0")}` : `${h}:${m}`;
 }
 
+/* where each bubble goes when clicked, like a real shortcut */
+const APP_URL: Record<string, string> = {
+  youtube: "https://www.youtube.com",
+  spotify: "https://open.spotify.com",
+  drive: "https://drive.google.com",
+  gmail: "https://mail.google.com",
+  docs: "https://docs.google.com",
+  sheets: "https://sheets.google.com",
+  calendar: "https://calendar.google.com",
+  maps: "https://maps.google.com",
+  photos: "https://photos.google.com",
+  github: "https://github.com",
+  discord: "https://discord.com/app",
+  notion: "https://www.notion.so",
+  figma: "https://www.figma.com",
+  reddit: "https://www.reddit.com",
+  slack: "https://app.slack.com",
+  x: "https://x.com",
+  linear: "https://linear.app",
+  vercel: "https://vercel.com",
+  hackernews: "https://news.ycombinator.com",
+};
+
 export function AppIcon({ n, label, style }: { n: string; label?: string; style?: CSSProperties }) {
-  return (
-    <span className="app" style={style}>
+  const inner = (
+    <>
       <span className="bub">
         <img src={`/media/apps/${n}.svg`} alt="" loading="lazy" />
       </span>
       {label && <small>{label}</small>}
+    </>
+  );
+  const href = APP_URL[n];
+  return href ? (
+    <a className="app" style={style} href={href} target="_blank" rel="noopener noreferrer" aria-label={"Open " + (label || n)} title={label}>
+      {inner}
+    </a>
+  ) : (
+    <span className="app" style={style}>
+      {inner}
     </span>
   );
 }

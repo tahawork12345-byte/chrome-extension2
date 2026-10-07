@@ -118,9 +118,14 @@
     calendar: ["Calendar", () => window.AtlasCalendar && AtlasCalendar.render({ body: P.body, sub: P.sub, section, show, upgradeNote })],
     planner: ["Day planner", () => window.AtlasPlanner && AtlasPlanner.render({ body: P.body, sub: P.sub, section, show, upgradeNote })],
   };
+  /* views that are part of Atlas Pro: a free account gets the upgrade box
+     (pro.js) and stays on the home view */
+  const PRO_VIEWS = { blocker: "The site blocker is part of Atlas Pro. Block distracting sites, on a schedule or all the time." };
+  const proLocked = () => !!window.AtlasPro && !AtlasPro.isPro();
   /* the views drawn by other files, told when they stop being shown */
   const detachViews = () => [window.AtlasFocus, window.AtlasCalendar, window.AtlasPlanner].forEach((m) => m && m.detach());
   function show(v) {
+    if (PRO_VIEWS[v] && window.AtlasPro && AtlasPro.need(PRO_VIEWS[v])) v = "home";
     detachViews();
     view = VIEWS[v] ? v : "home";
     const [title, render] = VIEWS[view];
@@ -214,7 +219,7 @@
       window.AtlasStats ? tile(I.chart, "Stats", "Your time and progress", () => { closeAll(); AtlasStats.open(); }) : null,
       tile(I.tasks, "Notes & Goals", tasks.length ? done + " of " + tasks.length + " done" + (dueN ? " · " + dueN + " due" : "") : "Plan and track", () => show("tasks")),
       hasTabs ? tile(I.bolt, "Optimize", AS.get().optimize.auto ? "Auto optimize on" : "Tidy your tabs", () => show("optimize")) : null,
-      tile(I.block, "Site blocker", bl.on ? "On · " + bl.sites.length + " site" + (bl.sites.length === 1 ? "" : "s") : "Off", () => show("blocker"), bl.on ? "is-on" : ""),
+      tile(I.block, "Site blocker", proLocked() ? "🔒 Pro" : bl.on ? "On · " + bl.sites.length + " site" + (bl.sites.length === 1 ? "" : "s") : "Off", () => show("blocker"), bl.on && !proLocked() ? "is-on" : ""),
       window.AtlasQuote ? tile(I.quote, "Daily quote", q.show ? (q.every === "day" ? "New one daily" : "New one each tab") : "Hidden", () => show("quote")) : null,
       hasTabs ? tile(I.tabs, "Tab manager", sessions.length ? sessions.length + " saved session" + (sessions.length === 1 ? "" : "s") : "Save and reopen tabs", () => show("tabmanager")) : null,
       hasChrome && chrome.permissions ? tile(I.puzzle, "Extensions", "Turn them on and off", () => show("extensions")) : null));

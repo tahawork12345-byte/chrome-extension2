@@ -144,12 +144,15 @@ html, body { scrollbar-width: thin; scrollbar-color: rgb(var(--a-rgb) / 0.4) tra
   transition: transform 250ms var(--ease), box-shadow 250ms;
 }
 .bub img { width: 52%; height: 52%; border-radius: 6px; }
+a.app { color: inherit; text-decoration: none; cursor: pointer; border-radius: 12px; }
+a.app:focus-visible { outline: 2px solid var(--a); outline-offset: 3px; }
+a.app:active .bub { transform: scale(0.94); }
 .app:hover .bub { transform: translateY(-3px) scale(1.06); box-shadow: inset 0 -4px 10px rgb(0 0 0 / 0.25), 0 10px 20px -8px rgb(var(--a-rgb) / 0.7); }
 @keyframes pop { from { opacity: 0; transform: scale(0.6) translateY(8px); } }
 
 /* ---------- hero ---------- */
 .hero { position: relative; min-height: 100svh; display: grid; align-items: center; padding: 120px 0 80px; isolation: isolate; overflow: hidden; }
-.hero-video, .closing-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -3; }
+.hero-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -3; }
 .hero-shade {
   position: absolute; inset: 0; z-index: -2;
   background:
@@ -286,9 +289,13 @@ kbd {
 .chapter .lede { margin-top: 14px; }
 @media (max-width: 640px) { .chapter { flex-direction: column; gap: 12px; } }
 .reveal { opacity: 0; transform: translateY(26px) scale(0.985); transition: opacity 900ms var(--ease), transform 900ms var(--ease); }
+.reveal.from-top { transform: translateY(-26px) scale(0.985); }
 .reveal.is-in { opacity: 1; transform: none; }
+/* the pieces inside replay their entrance each time the block comes back into view */
+.reveal:not(.is-in) :is(.app, .anime-tag, .spot-info, .spot-poster, .holo-in) { animation: none; opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
-  .reveal { opacity: 1; transform: none; transition: none; }
+  .reveal, .reveal.from-top { opacity: 1; transform: none; transition: none; }
+  .reveal:not(.is-in) :is(.app, .anime-tag, .spot-info, .spot-poster, .holo-in) { opacity: 1; }
   .rise, .walls-track, .float, .hero-glow { animation: none; }
 }
 
@@ -775,8 +782,48 @@ img.spot-full.on { animation: kenburns 16s ease-in-out infinite alternate; }
 
 /* ---------- closing ---------- */
 .closing { position: relative; isolation: isolate; padding: clamp(110px, 16vw, 200px) 0; overflow: hidden; }
-.closing-shade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, var(--bg) 0%, rgb(10 10 12 / 0.55) 35%, rgb(10 10 12 / 0.75) 100%); }
-.closing-inner { display: grid; justify-items: start; gap: 30px; }
+.closing-inner { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 40px; }
+.closing-copy { display: grid; justify-items: start; gap: 30px; }
+@media (max-width: 900px) { .closing-inner { grid-template-columns: 1fr; gap: 70px; } }
+
+/* animated backdrop: drifting aurora over a grid that fades out at the edges */
+.closing-bg { position: absolute; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; }
+.closing-bg i { position: absolute; width: 55vmax; aspect-ratio: 1; border-radius: 50%; filter: blur(90px); opacity: 0.32; }
+.closing-bg i:nth-child(1) { left: -15vmax; top: -10vmax; background: rgb(var(--a-rgb) / 0.8); animation: aurora-a 22s ease-in-out infinite alternate; }
+.closing-bg i:nth-child(2) { right: -18vmax; top: 10%; background: #6c5ce7; opacity: 0.22; animation: aurora-b 26s ease-in-out infinite alternate; }
+.closing-bg i:nth-child(3) { left: 30%; bottom: -30vmax; background: #00b4d8; opacity: 0.16; animation: aurora-a 30s ease-in-out infinite alternate-reverse; }
+@keyframes aurora-a { to { transform: translate(14vmax, 8vmax) scale(1.2); } }
+@keyframes aurora-b { to { transform: translate(-12vmax, 12vmax) scale(0.85); } }
+.closing-grid {
+  position: absolute; inset: -60px 0 0; opacity: 0.55;
+  background-image: linear-gradient(rgb(255 255 255 / 0.04) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 0.04) 1px, transparent 1px);
+  background-size: 60px 60px; animation: grid-pan 12s linear infinite;
+  -webkit-mask: radial-gradient(60% 70% at 70% 50%, #000, transparent 75%); mask: radial-gradient(60% 70% at 70% 50%, #000, transparent 75%);
+}
+@keyframes grid-pan { to { transform: translateY(60px); } }
+
+/* the new tab card with apps circling it */
+.cu { --r: min(210px, 40vw); position: relative; display: grid; place-items: center; width: 100%; max-width: 520px; aspect-ratio: 1; justify-self: center; }
+.cu-ring { position: absolute; width: calc(var(--r) * 2); aspect-ratio: 1; border-radius: 50%; border: 1px dashed rgb(var(--a-rgb) / 0.25); box-shadow: 0 0 80px -20px rgb(var(--a-rgb) / 0.35) inset; }
+.cu-ring::before { content: ""; position: absolute; inset: 18%; border-radius: 50%; border: 1px solid rgb(255 255 255 / 0.05); }
+.cu-orbit { position: absolute; inset: 0; animation: spin 48s linear infinite; }
+.cu-slot { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform: rotate(calc(var(--k) * 360deg / var(--n))) translateY(calc(var(--r) * -1)) rotate(calc(var(--k) * -360deg / var(--n))); }
+.cu-slot > .app { position: absolute; left: 0; top: 0; translate: -50% -50%; animation: spin 48s linear infinite reverse; }
+.cu-slot .bub { width: 54px; height: 54px; }
+.cu:hover .cu-orbit, .cu:hover .cu-slot > .app { animation-play-state: paused; }
+.cu-card { position: relative; z-index: 1; display: grid; gap: 14px; width: min(270px, 62vw); padding: 20px; border-radius: 22px; box-shadow: 0 40px 80px -40px rgb(0 0 0 / 0.95), 0 0 70px -25px rgb(var(--a-rgb) / 0.55); animation: bob 7s ease-in-out infinite; }
+.cu-clock { font-family: var(--serif); font-size: 46px; line-height: 1; }
+.cu-clock small { display: block; margin-top: 6px; font-family: var(--sans); font-size: 12px; color: var(--faint); }
+.cu-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: rgb(0 0 0 / 0.3); border: 1px solid var(--line); font-size: 13px; color: var(--soft); white-space: nowrap; overflow: hidden; }
+.cu-row { display: flex; align-items: center; gap: 10px; }
+.cu-line { display: grid; gap: 6px; flex: 1; font-size: 12.5px; }
+.cu-bar { display: block; height: 4px; border-radius: 4px; background: rgb(255 255 255 / 0.08); overflow: hidden; }
+.cu-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--a), #fff); animation: prog 7s var(--ease) infinite; }
+.cu-toast { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px; background: rgb(var(--a-rgb) / 0.12); border: 1px solid rgb(var(--a-rgb) / 0.3); font-size: 12.5px; color: var(--ink); animation: toast 7s var(--ease) infinite; }
+@media (max-width: 560px) { .cu-slot .bub { width: 44px; height: 44px; } .cu-clock { font-size: 38px; } }
+@media (prefers-reduced-motion: reduce) {
+  .closing-bg i, .closing-grid, .cu-orbit, .cu-slot > .app, .cu-card, .cu-bar i, .cu-toast { animation: none; }
+}
 .closing-logo { border-radius: 24px; box-shadow: 0 20px 60px -10px rgb(var(--a-rgb) / 0.6); animation: bob 6s ease-in-out infinite; }
 
 /* ---------- footer ---------- */

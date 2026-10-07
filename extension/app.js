@@ -114,28 +114,26 @@
     if (p && p.catch) p.catch(() => {});
   }
 
-  /* online live wallpapers are big 4K files. Streamed from the CDN they
-     start on a few seconds of buffer, outrun the download and stall, and
-     each loop fetches them again. So the whole file is downloaded first
-     (kept in Cache Storage for next time) and played from memory. */
+  /* online live wallpapers are big 4K files (often 100+ MB). Waiting for
+     the whole file before showing anything took minutes, so instead:
+       1. its thumbnail goes up at once, softly blurred (applyBackground);
+       2. a light preview clip (720p/1080p, from the server) streams and
+          plays within a second or two;
+       3. the full 4K file downloads behind it into Cache Storage, by one
+          tab at a time, and then takes over from the clip with a crossfade.
+     Next time the cached file plays straight from disk, with no stalls and
+     no fetching it again on every loop. */
   const VIDEO_CACHE = "atlas-live-videos";
   const VIDEO_CACHE_MAX = 3; // files kept on disk
   const videoBlobs = new Set(); // object URLs made here, revoked on unload
+  const isOnline = (src) => /^https:\/\//.test(src) && typeof caches !== "undefined";
 
-  async function fullVideo(src) {
-    if (!/^https:\/\//.test(src) || typeof caches === "undefined") return src;
+  /* the full file from Cache Storage as an object URL, or "" */
+  async function cachedVideo(src) {
+    if (!isOnline(src)) return "";
     try {
-      const cache = await caches.open(VIDEO_CACHE);
-      let res = await cache.match(src);
-      if (!res) {
-        res = await fetch(src, { referrerPolicy: "no-referrer" });
-        if (!res.ok) return src;
-        try {
-          await cache.put(src, res.clone());
-          const keys = await cache.keys(); // oldest first
-          await Promise.all(keys.slice(0, Math.max(0, keys.length - VIDEO_CACHE_MAX)).map((k) => cache.delete(k)));
-        } catch (_) { /* no room: play it anyway */ }
-      }
+      const res = await (await caches.open(VIDEO_CACHE)).match(src);
+      if (!res) return "";
       let blob = await res.blob();
       /* some hosts send it as a download (application/octet-stream) */
       if (!/^video\//.test(blob.type)) blob = new Blob([blob], { type: "video/mp4" });
@@ -143,9 +141,76 @@
       videoBlobs.add(url);
       return url;
     } catch (_) {
-      return src; // stream it as before
+      return "";
     }
   }
+
+  /* downloads the full file into the cache; true once it's there. A Web
+     Lock lets open tabs share one download: the others wait, then find it
+     cached. */
+  const caching = new Map();
+  function cacheVideo(src) {
+    if (!isOnline(src)) return Promise.resolve(false);
+    if (caching.has(src)) return caching.get(src);
+    const work = async () => {
+      const cache = await caches.open(VIDEO_CACHE);
+      if (await cache.match(src)) return true;
+      const res = await fetch(src, { referrerPolicy: "no-referrer", priority: "low" });
+      if (!res.ok) return false;
+      await cache.put(src, res);
+      const keys = await cache.keys(); // oldest first
+      await Promise.all(keys.slice(0, Math.max(0, keys.length - VIDEO_CACHE_MAX)).map((k) => cache.delete(k)));
+      return true;
+    };
+    const job = (navigator.locks ? navigator.locks.request("atlas-video:" + src, work) : work())
+      .catch(() => false) // no room, or offline: keep streaming
+      .finally(() => caching.delete(src));
+    caching.set(src, job);
+    return job;
+  }
+
+  /* once the 4K file is cached, it takes over from the clip on screen at
+     the same moment, fading in on the other layer */
+  async function upgradeVideo(src) {
+    if (!(await cacheVideo(src)) || shownVideo !== src || loadingVideo) return;
+    const url = await cachedVideo(src);
+    if (!url) return;
+    const cur = layers[front];
+    const next = layers[1 - front];
+    if (shownVideo !== src || loadingVideo) return dropBlob(url);
+    next.src = url;
+    playSafe(next);
+    const ok = await videoReady(next, 20000);
+    if (next.src !== url) return; // another wallpaper took this layer
+    if (ok !== true || shownVideo !== src || loadingVideo || layers[front] !== cur) {
+      if (!next.classList.contains("is-active")) unloadVideo(next);
+      return;
+    }
+    if (cur.duration && next.duration) {
+      next.currentTime = cur.currentTime % next.duration;
+      await new Promise((r) => { next.addEventListener("seeked", r, { once: true }); setTimeout(r, 1500); });
+      if (shownVideo !== src || loadingVideo || layers[front] !== cur) return;
+    }
+    front = 1 - front;
+    raise(next, cur, false);
+    setTimeout(() => {
+      if (layers[front] === cur) return;
+      cur.classList.remove("is-active");
+      unloadVideo(cur);
+    }, SETTLE);
+  }
+
+  /* a tab nobody is looking at waits, so it doesn't share the connection
+     with the one that is */
+  const whenVisible = () => new Promise((resolve) => {
+    if (!document.hidden) return resolve();
+    const on = () => {
+      if (document.hidden) return;
+      document.removeEventListener("visibilitychange", on);
+      resolve();
+    };
+    document.addEventListener("visibilitychange", on);
+  });
 
   function dropBlob(url) {
     if (!videoBlobs.has(url)) return;
@@ -161,7 +226,8 @@
     dropBlob(was);
   }
 
-  /* resolves once the video can play (or has failed, or taken too long) */
+  /* resolves once the video can play: true, false when it failed, null
+     when it took too long */
   function videoReady(v, ms = 12000) {
     return new Promise((resolve) => {
       if (v.readyState >= 3) return resolve(true);
@@ -169,7 +235,7 @@
         clearTimeout(t);
         v.removeEventListener("canplay", done);
         v.removeEventListener("error", done);
-        resolve(!!e && e.type === "canplay");
+        resolve(e ? e.type === "canplay" : null);
       };
       const t = setTimeout(done, ms);
       v.addEventListener("canplay", done);
@@ -208,8 +274,10 @@
     el.classList.add("is-active");
   }
 
-  /* false when the wallpaper changed again before this one was ready */
-  async function showVideo(src, instant) {
+  /* false when the wallpaper changed again before this one was ready.
+     `light`: an online video's preview clip, streamed until the full file
+     is cached */
+  async function showVideo(src, instant, light) {
     if (shownVideo === src) return true;
     if (loadingVideo === src) return false; // already on its way
     clearTimeout(videoHideTimer);
@@ -218,15 +286,32 @@
     loadingVideo = src;
     syncLoading();
     const stale = () => loadingVideo !== src || !want || want.video !== src;
-    const play = await fullVideo(src);
+    const online = isOnline(src);
+    const cached = online ? await cachedVideo(src) : "";
     if (stale()) {
-      dropBlob(play);
+      dropBlob(cached);
       if (loadingVideo === src) { loadingVideo = ""; syncLoading(); }
       return false;
     }
-    next.src = play;
-    playSafe(next);
-    if (!instant) await videoReady(next);
+    /* not cached yet: stream, starting on the light clip */
+    const tries = cached ? [cached] : online ? [light, src].filter(Boolean) : [src];
+    let ok = null;
+    for (const play of tries) {
+      if (stale()) break;
+      next.src = play;
+      playSafe(next);
+      ok = instant && !online ? true : await videoReady(next);
+      if (ok !== false) break; // playing, or just slow: keep it
+    }
+    /* the host won't stream to the page: download it whole, as a last resort */
+    if (ok === false && online && !cached && !stale() && (await cacheVideo(src)) && !stale()) {
+      const url = await cachedVideo(src);
+      if (url) {
+        next.src = url;
+        playSafe(next);
+        await videoReady(next);
+      }
+    }
     if (stale()) {
       if (loadingVideo === src) { loadingVideo = ""; syncLoading(); }
       if (!next.classList.contains("is-active")) unloadVideo(next);
@@ -244,6 +329,7 @@
         unloadVideo(cur);
       }, SETTLE);
     }
+    if (online && !videoBlobs.has(next.src)) upgradeVideo(src);
     return true;
   }
 
@@ -260,7 +346,9 @@
     }, 1000);
   }
 
-  async function showImage(src, preview, instant) {
+  /* `soft`: keep it blurred (a live wallpaper's thumbnail, until the video
+     comes) */
+  async function showImage(src, preview, instant, soft) {
     if (shownImage === src) return true;
     if (loadingImage === src) return false;
     clearTimeout(imageHideTimer);
@@ -291,9 +379,9 @@
     if (!ok && !shown) return false; // keep what's on screen
     shownImage = src;
     if (ok) next.src = src;
-    if (shown) requestAnimationFrame(() => next.classList.remove("is-preview"));
+    if (shown) requestAnimationFrame(() => next.classList.toggle("is-preview", !!soft));
     else {
-      next.classList.remove("is-preview");
+      next.classList.toggle("is-preview", !!soft);
       bringIn();
     }
     return true;
@@ -335,13 +423,18 @@
     let video = "";
     let image = "";
     let preview = "";
+    let light = "";  // an online video's quick-start clip
+    let poster = ""; // and its thumbnail, shown while it comes
     let fill = "";
 
     if (bg.mode === "color") fill = bg.color;
     else if (bg.mode === "gradient") fill = `linear-gradient(${bg.gradAngle}deg, ${bg.gradA}, ${bg.gradB})`;
     else if (bg.mode === "online" && /^https:\/\//.test(bg.online.src)) {
-      if (bg.online.kind === "video") video = bg.online.src;
-      else {
+      if (bg.online.kind === "video") {
+        video = bg.online.src;
+        if (/^https:\/\//.test(bg.online.preview)) light = bg.online.preview;
+        if (/^https:\/\//.test(bg.online.thumb)) poster = bg.online.thumb;
+      } else {
         image = bg.online.src;
         if (/^https:\/\//.test(bg.online.thumb)) preview = bg.online.thumb;
       }
@@ -360,8 +453,13 @@
       v.playbackRate = rate;
     });
 
-    want = { video, image };
-    const still = () => want.video === video && want.image === image;
+    if (video && isOnline(video) && video !== shownVideo && document.hidden) {
+      await whenVisible();
+      if (token !== bgToken) return;
+    }
+
+    want = { video, image: image || poster };
+    const still = () => want.video === video && want.image === (image || poster);
     /* a colour covers everything at once; otherwise it stays up until the
        new picture is ready underneath */
     if (fill) {
@@ -372,7 +470,12 @@
       return;
     }
     if (video) {
-      if (!(await showVideo(video, instant)) || !still()) return;
+      if (poster && video !== shownVideo) {
+        showImage(poster, "", instant, true).then((up) => {
+          if (up && still() && shownVideo !== video) wpFill.classList.remove("is-active");
+        });
+      }
+      if (!(await showVideo(video, instant, light)) || !still()) return;
       wpFill.classList.remove("is-active");
       hideImages(); // fades out over the video, which is ready underneath
     } else {
@@ -425,7 +528,9 @@
 
   function applyWallpaperSchedule(instant) {
     const hit = scheduledWallpaper(Date.now());
-    if (hit && !(AS.get().background.mode === "video" && currentWp === hit.id)) setWallpaper(hit.id, instant, true);
+    /* a wallpaper a free account hasn't chosen (pro.js) is left out */
+    const allowed = hit && (!window.AtlasPro || AtlasPro.canUseBuiltIn(hit.id));
+    if (allowed && !(AS.get().background.mode === "video" && currentWp === hit.id)) setWallpaper(hit.id, instant, true);
     armWallpaperTimer();
   }
 
@@ -456,6 +561,7 @@
     if (!WALLPAPERS.length) return;
     const i = WALLPAPERS.findIndex((w) => w.id === currentWp);
     const next = (((i < 0 ? 0 : i + delta) % WALLPAPERS.length) + WALLPAPERS.length) % WALLPAPERS.length;
+    if (window.AtlasPro && !AtlasPro.builtIn(WALLPAPERS[next].id)) return;
     setWallpaper(WALLPAPERS[next].id);
   }
 
@@ -686,13 +792,18 @@
     return AtlasPro.need("Adding tabs and shortcuts to the private space is part of Atlas Pro.");
   }
 
+  /* the private space is part of Atlas Pro; what's in it stays encrypted
+     until the account is Pro again */
+  const vaultPro = () => !!window.AtlasPro && AtlasPro.need("The private space is part of Atlas Pro.");
+
   function openVault() {
-    if (!vaultWs()) return;
+    if (!vaultWs() || vaultPro()) return;
     setWorkspace(VAULT_ID);
     setLauncherOpen(true);
   }
 
   function promptUnlock() {
+    if (vaultPro()) return;
     if (!V || !V.exists()) return AS.open("privacy");
     if (V.isUnlocked()) return openVault();
     return openPrivateFolder();
@@ -746,6 +857,7 @@
   const pfWhen = (at) => new Date(at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
   function openPrivateFolder(view) {
+    if (vaultPro()) return;
     if (view === "apps" || view === "notes") pfView = view;
     if (pf.hidden) pfLastFocus = document.activeElement;
     pfEditing = false;
@@ -2165,6 +2277,10 @@
      you say fills the field as you speak; when you stop, it searches
      (or waits for Enter, if "Search when I stop talking" is off). --- */
   const Voice = window.AtlasVoice;
+  /* voice typing and spoken answers are part of Atlas Pro: a free account
+     gets the upgrade box (pro.js) instead */
+  const voicePro = () => !!window.AtlasPro && AtlasPro.need("Voice typing and the assistant's voice are part of Atlas Pro.");
+  const voiceAllowed = () => !window.AtlasPro || AtlasPro.isPro();
   const searchMic = $("searchMic");
   let searchRec = null;
 
@@ -2188,7 +2304,7 @@
   }
   function searchByVoice() {
     if (searchRec) return searchRec.stop();
-    if (!Voice) return;
+    if (!Voice || voicePro()) return;
     const before = qEl.value;
     searchMic.classList.add("is-live");
     searchMic.setAttribute("aria-pressed", "true");
@@ -2560,7 +2676,7 @@
       say.title = "Read out loud";
       say.setAttribute("aria-label", "Read out loud");
       say.innerHTML = SPEAK_SVG;
-      say.addEventListener("click", () => (speakingBtn === say ? stopSpeaking() : sayReply(text, say)));
+      say.addEventListener("click", () => (speakingBtn === say ? stopSpeaking() : voicePro() ? null : sayReply(text, say)));
       const meta = document.createElement("span");
       meta.className = "msg-meta";
       meta.append(t, say);
@@ -2668,6 +2784,7 @@
   /* voice typing into the box; in talk mode it sends by itself */
   function listenChat() {
     if (chatRec || !Voice || !Voice.canListen) return;
+    if (voicePro()) { if (talk) setTalk(false); return; }
     stopSpeaking();
     const before = talk ? "" : aiInput.value.trim();
     const put = (t) => {
@@ -2701,6 +2818,7 @@
 
   /* talk mode: listen → send → speak the answer → listen again */
   function setTalk(on) {
+    if (on && voicePro()) return;
     talk = on;
     aiTalk.classList.toggle("is-on", on);
     aiTalk.setAttribute("aria-pressed", String(on));
@@ -2718,7 +2836,7 @@
   /* after an answer: read it out if asked to, then carry on talking */
   function afterReply(reply, sayBtn) {
     const ai = AS.get().language.ai;
-    if ((talk || ai.speak) && Voice && Voice.canSpeak) {
+    if ((talk || ai.speak) && Voice && Voice.canSpeak && voiceAllowed()) {
       sayReply(reply, sayBtn).then((finished) => { if (talk && finished) listenChat(); });
     } else if (talk) listenChat();
   }
@@ -2776,6 +2894,7 @@
       sw.className = "cz-switch";
       sw.checked = L.ai.speak;
       sw.addEventListener("change", () => {
+        if (sw.checked && voicePro()) { sw.checked = false; return; }
         AS.set("language.ai.speak", sw.checked);
         if (!sw.checked) stopSpeaking();
       });

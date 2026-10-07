@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { AnimeLovers } from "@/components/site/anime";
 import { Developers } from "@/components/site/developers";
 import { Footer, InstallButton, Nav, Reveal, useTheme } from "@/components/site/layout";
@@ -34,6 +34,7 @@ import {
   hm,
   useCycle,
   useNow,
+  useTyped,
 } from "@/components/site/showcase";
 import { CONTACT_EMAIL, FALLBACK_PRICES, THEMES, fetchPlans, money } from "@/lib/site";
 
@@ -582,7 +583,7 @@ function Themes() {
                 aria-checked={theme.id === t.id}
                 className={"swatch" + (theme.id === t.id ? " is-on" : "")}
                 onClick={() => pick(t)}
-                style={{ "--sa": t.accent, "--sg": t.glass } as React.CSSProperties}
+                style={{ "--sa": t.accent, "--sg": t.glass } as CSSProperties}
               >
                 <span className="sw-img" style={{ backgroundImage: `url(/media/wp/${t.wall}.jpg)` }}>
                   <span className="sw-glass">
@@ -770,19 +771,69 @@ function Faq() {
   );
 }
 
+/* apps that circle the closing card; each one opens the real site */
+const ORBIT = ["youtube", "spotify", "drive", "gmail", "github", "notion", "figma", "calendar"];
+
 function Closing() {
+  const now = useNow(1000);
+  const [q] = useTyped(["lofi beats to focus", "weather this weekend", "plan my afternoon", "!gh tanstack start"]);
   return (
     <section className="closing">
-      <Loop src="/media/closing.mp4" poster="/media/closing.jpg" className="closing-video" />
-      <div className="closing-shade" />
+      {/* a slow aurora over a fading grid, in place of a video */}
+      <div className="closing-bg" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+        <span className="closing-grid" />
+      </div>
       <div className="wrap closing-inner">
-        <img src="/media/icon.png" alt="" className="closing-logo" width={84} height={84} />
-        <h2 className="display small">
-          Open a new tab.
-          <br />
-          <em>Stay a second longer.</em>
-        </h2>
-        <InstallButton />
+        <Reveal className="closing-copy">
+          <img src="/media/icon.png" alt="" className="closing-logo" width={84} height={84} />
+          <h2 className="display small">
+            Open a new tab.
+            <br />
+            <em>Stay a second longer.</em>
+          </h2>
+          <InstallButton />
+        </Reveal>
+
+        <Reveal className="cu" delay={120}>
+          <div className="cu-ring" aria-hidden="true" />
+          <div className="cu-orbit">
+            {ORBIT.map((n, k) => (
+              <span key={n} className="cu-slot" style={{ "--k": k, "--n": ORBIT.length } as CSSProperties}>
+                <AppIcon n={n} />
+              </span>
+            ))}
+          </div>
+          <div className="cu-card glass">
+            <div className="cu-clock">
+              {hm(now)}
+              <small>{now ? now.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long" }) : " "}</small>
+            </div>
+            <div className="cu-search">
+              <Icon d={I.search} size={14} />
+              <span>
+                {q}
+                <i className="caret" />
+              </span>
+            </div>
+            <div className="cu-row">
+              <span className="f-ico">
+                <Icon d={I.spark} size={14} />
+              </span>
+              <span className="cu-line">
+                <b>Deep work</b>
+                <span className="cu-bar">
+                  <i />
+                </span>
+              </span>
+            </div>
+            <div className="cu-toast">
+              <Icon d={I.bell} size={13} /> Stand up and stretch
+            </div>
+          </div>
+        </Reveal>
       </div>
     </section>
   );
