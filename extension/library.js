@@ -127,6 +127,7 @@
       thumb: v.thumb,
       src: https(v.video) ? v.video : null,
       preview: https(v.preview) ? v.preview : "",
+      hd: https(v.hd) ? v.hd : "",
       width: Number(v.width) || 0,
       height: Number(v.height) || 0,
       credit: String(v.credit || "").slice(0, 80),
@@ -145,6 +146,7 @@
     thumb: v.thumb,
     src: https(v.src) ? v.src : null,
     preview: https(v.preview) ? v.preview : "",
+    hd: https(v.hd) ? v.hd : "",
     width: Number(v.width) || 0,
     height: Number(v.height) || 0,
     credit: String(v.credit || "").slice(0, 80),
@@ -178,6 +180,15 @@
     favsChanged();
   });
 
+  /* the first page of All, kept from last time: a new tab shows it at once
+     while the fresh one loads, and the cards stay put when nothing changed
+     (only the search goes to the network, not this) */
+  const SNAP_KEY = "wp:snap";
+  const SNAP_MAX = 60;
+  let snap = null;
+  const snapLoaded = new Promise((r) => (hasChrome ? chrome.storage.local.get([SNAP_KEY], r) : r({})))
+    .then((o) => { const s = readFavs(o[SNAP_KEY]); snap = s.length ? s : null; }, () => {});
+
   /* one search at a time; a new one drops the answers of the last */
   let lib = null;
   let seq = 0;
@@ -187,6 +198,12 @@
     const my = ++seq;
     const side = () => ({ page: 0, more: false, error: "" });
     lib = { filter: filterOf(filter).id, q: String(q || "").trim().slice(0, 80), items: [], still: side(), live: side(), loading: true };
+    /* stale: the kept cards, until the fresh answer replaces them */
+    if (lib.filter === "all" && !lib.q) {
+      await snapLoaded;
+      if (my !== seq) return;
+      if (snap) { lib.items = snap.slice(); lib.stale = true; }
+    }
     emit();
     try { await loadSources(); } catch (err) {
       if (my !== seq) return;
@@ -205,6 +222,7 @@
       return emit();
     }
     lib.filter = f.id;
+    if (lib.stale && f.id !== "all") { lib.items = []; lib.stale = false; }
     /* Favourites: the saved list, searched by who made it or where from */
     if (f.favs) {
       const words = lib.q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -213,7 +231,9 @@
       return emit();
     }
     /* All, with nothing typed: the favourites come first */
-    if (f.id === "all" && !lib.q) lib.items = favs.slice();
+    const base = f.id === "all" && !lib.q ? favs.slice() : [];
+    if (lib.stale) lib.base = base; // swapped in with the answer
+    else lib.items = base;
     lib.still.more = !!f.still && !!sources.wallhaven;
     lib.live.more = !!f.live && sources.live;
     return more();
@@ -226,6 +246,7 @@
     const join = (topic) => (topic ? (lib.q ? lib.q + " " + topic : topic) : lib.q);
     const q = join(f.topic);
     const liveQ = join(typeof f.live === "string" ? f.live : f.topic);
+    const first = !lib.still.page && !lib.live.page;
     lib.loading = true;
     emit();
     const fail = (err) => ({ error: (err && err.message) || "Something went wrong." });
@@ -243,12 +264,23 @@
     };
     const x = take(a, lib.still);
     const y = take(b, lib.live);
+    /* the kept cards stay up if nothing came back at all (offline) */
+    if (lib.stale && (x.length || y.length)) {
+      lib.items = lib.base || [];
+      lib.stale = false;
+      delete lib.base;
+    }
     /* stills and videos take turns */
     const seen = new Set(lib.items.map((i) => i.key));
     for (let i = 0; i < Math.max(x.length, y.length); i++) {
       [x[i], y[i]].forEach((it) => { if (it && !seen.has(it.key)) { seen.add(it.key); lib.items.push(it); } });
     }
     lib.loading = false;
+    /* a clean first page of All is what the next tab opens on */
+    if (first && !lib.stale && lib.filter === "all" && !lib.q && !lib.still.error && !lib.live.error && lib.items.length && hasChrome) {
+      snap = lib.items.slice(0, SNAP_MAX);
+      chrome.storage.local.set({ [SNAP_KEY]: snap });
+    }
     emit();
   }
 

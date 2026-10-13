@@ -122,11 +122,39 @@
        3. the full 4K file downloads behind it into Cache Storage, by one
           tab at a time, and then takes over from the clip with a crossfade.
      Next time the cached file plays straight from disk, with no stalls and
-     no fetching it again on every loop. */
+     no fetching it again on every loop.
+     The file kept is the one the screen can use: on a screen under ~2K
+     pixels wide a 4K file looks no sharper than full HD, but is 4–5× the
+     download and the decoding, so the full-HD copy (`hd`) is kept there. */
   const VIDEO_CACHE = "atlas-live-videos";
   const VIDEO_CACHE_MAX = 3; // files kept on disk
   const videoBlobs = new Set(); // object URLs made here, revoked on unload
   const isOnline = (src) => /^https:\/\//.test(src) && typeof caches !== "undefined";
+  const BIG_SCREEN = (screen.width || 0) * (window.devicePixelRatio || 1) > 2200;
+  const keepFile = (src, hd) => (hd && !BIG_SCREEN ? hd : src);
+
+  /* the wallpaper on screen has run out of data and is waiting for more */
+  const starving = () => layers.some((v) => v.classList.contains("is-active") && v.src && !v.paused && !v.error && v.readyState < 3);
+
+  /* the download yields to playback: while the clip on screen waits for
+     data it stops reading (the connection goes to the clip), and picks up
+     again once it plays. Two downloads sharing the line was what made a new
+     live wallpaper stutter until the full file had arrived. */
+  function yielding(res) {
+    if (!res.body) return res;
+    const reader = res.body.getReader();
+    const body = new ReadableStream({
+      async pull(ctl) {
+        /* not forever: a clip that never recovers shouldn't hold it up */
+        for (let i = 0; i < 50 && starving(); i++) await new Promise((r) => setTimeout(r, 300));
+        const { done, value } = await reader.read();
+        if (done) ctl.close();
+        else ctl.enqueue(value);
+      },
+      cancel: (why) => reader.cancel(why),
+    });
+    return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+  }
 
   /* the full file from Cache Storage as an object URL, or "" */
   async function cachedVideo(src) {
@@ -157,7 +185,7 @@
       if (await cache.match(src)) return true;
       const res = await fetch(src, { referrerPolicy: "no-referrer", priority: "low" });
       if (!res.ok) return false;
-      await cache.put(src, res);
+      await cache.put(src, yielding(res));
       const keys = await cache.keys(); // oldest first
       await Promise.all(keys.slice(0, Math.max(0, keys.length - VIDEO_CACHE_MAX)).map((k) => cache.delete(k)));
       return true;
@@ -171,9 +199,13 @@
 
   /* once the 4K file is cached, it takes over from the clip on screen at
      the same moment, fading in on the other layer */
-  async function upgradeVideo(src) {
-    if (!(await cacheVideo(src)) || shownVideo !== src || loadingVideo) return;
-    const url = await cachedVideo(src);
+  async function upgradeVideo(src, keep) {
+    /* a head start: the clip gets the line to itself until it can play
+       through, before the full file starts coming in behind it */
+    await playsThrough(layers[front], 8000);
+    if (shownVideo !== src || loadingVideo) return;
+    if (!(await cacheVideo(keep)) || shownVideo !== src || loadingVideo) return;
+    const url = await cachedVideo(keep);
     if (!url) return;
     const cur = layers[front];
     const next = layers[1 - front];
@@ -193,11 +225,27 @@
     }
     front = 1 - front;
     raise(next, cur, false);
+    /* the same picture on both, so a short handover is enough; two videos
+       decoding at once is the costly part */
     setTimeout(() => {
       if (layers[front] === cur) return;
       cur.classList.remove("is-active");
       unloadVideo(cur);
-    }, SETTLE);
+    }, 1000);
+  }
+
+  /* resolves once `v` has enough to play to the end, or after `ms` */
+  function playsThrough(v, ms) {
+    return new Promise((resolve) => {
+      if (!v || v.readyState >= 4) return resolve();
+      const done = () => {
+        clearTimeout(t);
+        v.removeEventListener("canplaythrough", done);
+        resolve();
+      };
+      const t = setTimeout(done, ms);
+      v.addEventListener("canplaythrough", done);
+    });
   }
 
   /* a tab nobody is looking at waits, so it doesn't share the connection
@@ -276,8 +324,9 @@
 
   /* false when the wallpaper changed again before this one was ready.
      `light`: an online video's preview clip, streamed until the full file
-     is cached */
-  async function showVideo(src, instant, light) {
+     is cached; `hd`: its full-HD copy, kept instead of the 4K one on a
+     screen that can't show 4K */
+  async function showVideo(src, instant, light, hd) {
     if (shownVideo === src) return true;
     if (loadingVideo === src) return false; // already on its way
     clearTimeout(videoHideTimer);
@@ -287,14 +336,16 @@
     syncLoading();
     const stale = () => loadingVideo !== src || !want || want.video !== src;
     const online = isOnline(src);
-    const cached = online ? await cachedVideo(src) : "";
+    const keep = online ? keepFile(src, hd) : src;
+    /* either size, if it was kept before (a 4K file from another screen) */
+    const cached = online ? (await cachedVideo(keep)) || (keep !== src && !stale() ? await cachedVideo(src) : "") : "";
     if (stale()) {
       dropBlob(cached);
       if (loadingVideo === src) { loadingVideo = ""; syncLoading(); }
       return false;
     }
     /* not cached yet: stream, starting on the light clip */
-    const tries = cached ? [cached] : online ? [light, src].filter(Boolean) : [src];
+    const tries = cached ? [cached] : online ? [...new Set([light, keep, src].filter(Boolean))] : [src];
     let ok = null;
     for (const play of tries) {
       if (stale()) break;
@@ -304,8 +355,8 @@
       if (ok !== false) break; // playing, or just slow: keep it
     }
     /* the host won't stream to the page: download it whole, as a last resort */
-    if (ok === false && online && !cached && !stale() && (await cacheVideo(src)) && !stale()) {
-      const url = await cachedVideo(src);
+    if (ok === false && online && !cached && !stale() && (await cacheVideo(keep)) && !stale()) {
+      const url = await cachedVideo(keep);
       if (url) {
         next.src = url;
         playSafe(next);
@@ -329,7 +380,7 @@
         unloadVideo(cur);
       }, SETTLE);
     }
-    if (online && !videoBlobs.has(next.src)) upgradeVideo(src);
+    if (online && !videoBlobs.has(next.src)) upgradeVideo(src, keep);
     return true;
   }
 
@@ -424,6 +475,7 @@
     let image = "";
     let preview = "";
     let light = "";  // an online video's quick-start clip
+    let hd = "";     // its full-HD copy, for screens that can't show 4K
     let poster = ""; // and its thumbnail, shown while it comes
     let fill = "";
 
@@ -433,6 +485,7 @@
       if (bg.online.kind === "video") {
         video = bg.online.src;
         if (/^https:\/\//.test(bg.online.preview)) light = bg.online.preview;
+        if (/^https:\/\//.test(bg.online.hd)) hd = bg.online.hd;
         if (/^https:\/\//.test(bg.online.thumb)) poster = bg.online.thumb;
       } else {
         image = bg.online.src;
@@ -460,6 +513,9 @@
 
     want = { video, image: image || poster };
     const still = () => want.video === video && want.image === (image || poster);
+    /* a moving wallpaper: style.css drops the glass blurs that would be
+       redrawn on every one of its frames */
+    document.body.classList.toggle("wp-live", !!video && !fill);
     /* a colour covers everything at once; otherwise it stays up until the
        new picture is ready underneath */
     if (fill) {
@@ -475,7 +531,7 @@
           if (up && still() && shownVideo !== video) wpFill.classList.remove("is-active");
         });
       }
-      if (!(await showVideo(video, instant, light)) || !still()) return;
+      if (!(await showVideo(video, instant, light, hd)) || !still()) return;
       wpFill.classList.remove("is-active");
       hideImages(); // fades out over the video, which is ready underneath
     } else {
@@ -4053,6 +4109,22 @@
   document.querySelector(".wallpaper").addEventListener("contextmenu", (e) => {
     e.preventDefault();
     AS.open();
+  });
+
+  /* wallpapers and their library previews can't be saved the easy ways: no
+     "Save image / video as" or "Copy address" menu, no dragging them out,
+     no picture-in-picture or casting */
+  const WP_MEDIA = ".wallpaper, .cz-pwp, .cz-pwps";
+  document.addEventListener("contextmenu", (e) => {
+    if (e.target instanceof Element && e.target.closest(WP_MEDIA) && !e.target.closest("a[href]")) e.preventDefault();
+  });
+  document.addEventListener("dragstart", (e) => {
+    if (e.target instanceof Element && e.target.matches("img, video") && e.target.closest(WP_MEDIA)) e.preventDefault();
+  });
+  document.querySelectorAll(".wallpaper video").forEach((v) => {
+    v.disablePictureInPicture = true;
+    v.setAttribute("disableremoteplayback", "");
+    v.setAttribute("controlslist", "nodownload noplaybackrate noremoteplayback");
   });
 
   /* ================= SETTINGS -> BEHAVIOUR ===============================

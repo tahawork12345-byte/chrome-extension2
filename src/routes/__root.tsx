@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { protectMedia } from "../lib/protect-media";
 
 function NotFoundComponent() {
   return (
@@ -78,11 +79,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { name: "theme-color", content: "#0b0b0d" },
+      { name: "google-site-verification", content: "F5emA-HO_ZMFNkiZ5HCA4ypPnnzsWIGmSAKiG0AxCwM" },
       { title: "Atlas — a new tab worth opening" },
       { name: "description", content: "Live wallpapers, shortcuts in glass cards, workspaces and quick tools for Chrome's new tab." },
       { property: "og:type", content: "website" },
       { property: "og:site_name", content: "Atlas" },
+      { property: "og:locale", content: "en_US" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "robots", content: "index, follow, max-image-preview:large" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -96,6 +100,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: appCss,
       },
       { rel: "icon", type: "image/png", href: "/media/icon.png" },
+      { rel: "apple-touch-icon", href: "/media/icon.png" },
+      { rel: "sitemap", type: "application/xml", href: "/sitemap.xml" },
     ],
   }),
   shellComponent: RootShell,
@@ -120,6 +126,7 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useEffect(protectMedia, []);
 
   return (
     <QueryClientProvider client={queryClient}>

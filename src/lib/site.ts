@@ -1,5 +1,9 @@
 /* Everything the marketing site needs to know, in one place. */
 
+/* the public address of this site; canonical URLs, the sitemap and
+   link previews are built on it */
+export const SITE_URL = "https://atlas.aqibawan.com";
+
 /* the backend in backend/ (Vercel). Override with VITE_API_URL. */
 export const API_URL = String(
   import.meta.env.VITE_API_URL || "https://atlas-assistant-backend.vercel.app",

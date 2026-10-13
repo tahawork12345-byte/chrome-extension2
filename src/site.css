@@ -288,6 +288,10 @@ kbd {
 .chap-n { flex: 0 0 auto; margin-top: 4px; font-family: var(--serif); font-size: 22px; font-style: italic; color: var(--a); padding: 6px 12px; border: 1px solid rgb(var(--a-rgb) / 0.35); border-radius: 999px; }
 .chapter .lede { margin-top: 14px; }
 @media (max-width: 640px) { .chapter { flex-direction: column; gap: 12px; } }
+/* wallpapers can't be dragged out, long-pressed to save, or clicked through to their file */
+.site img, .site video { -webkit-user-drag: none; user-select: none; -webkit-touch-callout: none; }
+.spot-media, .holo-in img, .holo-in video { pointer-events: none; }
+.spot-media .spot-retry { pointer-events: auto; }
 .reveal { opacity: 0; transform: translateY(26px) scale(0.985); transition: opacity 900ms var(--ease), transform 900ms var(--ease); }
 .reveal.from-top { transform: translateY(-26px) scale(0.985); }
 .reveal.is-in { opacity: 1; transform: none; }
@@ -843,6 +847,8 @@ img.spot-full.on { animation: kenburns 16s ease-in-out infinite alternate; }
 .doc-date { margin: 14px 0 40px; color: var(--faint); font-size: 14px; }
 .prose { color: var(--soft); font-size: 16px; line-height: 1.7; }
 .prose h2 { margin: 44px 0 10px; color: var(--ink); font-size: 20px; font-weight: 650; }
+.prose h3 { margin: 24px 0 8px; color: var(--ink); font-size: 16.5px; font-weight: 620; }
+.prose code { font-size: .9em; }
 .prose p, .prose ul { margin: 0 0 14px; }
 .prose ul { padding-left: 20px; }
 .prose li { margin: 6px 0; }

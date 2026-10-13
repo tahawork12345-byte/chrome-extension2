@@ -9,8 +9,8 @@
   <body>
     <!-- WALLPAPER (two layers each for crossfades; see app.js) -->
     <div class="wallpaper">
-      <div class="wp-slot is-top"><video class="wp-layer is-active" id="videoA" muted loop playsinline preload="auto"></video></div>
-      <div class="wp-slot"><video class="wp-layer" id="videoB" muted loop playsinline preload="auto"></video></div>
+      <div class="wp-slot is-top"><video class="wp-layer is-active" id="videoA" muted loop playsinline preload="auto" disablepictureinpicture disableremoteplayback controlslist="nodownload noplaybackrate noremoteplayback"></video></div>
+      <div class="wp-slot"><video class="wp-layer" id="videoB" muted loop playsinline preload="auto" disablepictureinpicture disableremoteplayback controlslist="nodownload noplaybackrate noremoteplayback"></video></div>
       <!-- images (online or uploaded), also two layers; a solid colour / gradient above -->
       <div class="wp-slot is-img"><img class="wp-image" id="wpImage" alt="" referrerpolicy="no-referrer" /></div>
       <div class="wp-slot is-img"><img class="wp-image" id="wpImageB" alt="" referrerpolicy="no-referrer" /></div>

@@ -9,8 +9,8 @@
   <body>
     <!-- LIVE WALLPAPER (two layers for crossfade) -->
     <div class="wallpaper">
-      <video class="wp-layer is-active" id="videoA" muted loop playsinline preload="auto"></video>
-      <video class="wp-layer" id="videoB" muted loop playsinline preload="auto"></video>
+      <video class="wp-layer is-active" id="videoA" muted loop playsinline preload="auto" disablepictureinpicture disableremoteplayback controlslist="nodownload noplaybackrate noremoteplayback"></video>
+      <video class="wp-layer" id="videoB" muted loop playsinline preload="auto" disablepictureinpicture disableremoteplayback controlslist="nodownload noplaybackrate noremoteplayback"></video>
       <div class="wp-veil"></div>
     </div>
 
@@ -65,5 +65,10 @@
 
     <script src="config.js"></script>
     <script src="app.js"></script>
+    <script>
+      /* the wallpaper can't be right-clicked to save or dragged out */
+      document.addEventListener("contextmenu", (e) => { if (e.target instanceof Element && e.target.closest(".wallpaper, video, img")) e.preventDefault(); });
+      document.addEventListener("dragstart", (e) => { if (e.target instanceof Element && e.target.matches("img, video")) e.preventDefault(); });
+    </script>
   </body>
 </html>

@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { DocPage } from "@/components/site/layout";
+import { seo } from "@/lib/seo";
 import { CONTACT_EMAIL } from "@/lib/site";
 
 export const Route = createFileRoute("/terms")({
-  head: () => ({ meta: [{ title: "Terms — Atlas" }] }),
+  head: () => seo({ path: "/terms", title: "Terms of service — Atlas New Tab", description: "The terms for using Atlas New Tab, the Chrome extension, and the Atlas Pro subscription." }),
   component: Terms,
 });
 

@@ -8,7 +8,7 @@ import { API_URL } from "@/lib/site";
    checkout inline, in .checkout-container. */
 export const Route = createFileRoute("/checkout")({
   head: () => ({
-    meta: [{ title: "Checkout — Atlas Pro" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Checkout — Atlas Pro" }, { name: "robots", content: "noindex, nofollow" }],
     scripts: [{ src: "https://cdn.paddle.com/paddle/v2/paddle.js" }],
   }),
   component: Checkout,

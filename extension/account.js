@@ -18,7 +18,14 @@
   const CLIENT_ID = String(CFG.googleClientId || "");
   const KEY = "account:session";
   const SYNC_KEY = "account:lastSync";
-  const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+  /* the narrowest calendar scopes: the event lists and the list of calendars,
+     both read-only. Must match the scopes in Google Cloud > Data Access. */
+  const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.calendarlist.readonly";
+  /* true when every scope in `want` (space-separated) is in Google's answer */
+  const granted = (params, want) => {
+    const got = String(params.get("scope") || "").split(" ");
+    return want.split(" ").every((s) => got.includes(s));
+  };
   /* what "Save to account" uploads: the Customize settings and the
      shortcuts. Both are kept as the exact strings in storage. */
   const SYNC_KEYS = ["appearance", "layout"];
@@ -183,7 +190,7 @@
     await setSession(await request("/auth/google", { method: "POST", body: { idToken } }));
     /* Google lets the user untick the calendar box; then Calendar offers Connect */
     const access = params.get("access_token");
-    if (access && String(params.get("scope") || "").split(" ").includes(CALENDAR_SCOPE) && window.AtlasCalendar) {
+    if (access && granted(params, CALENDAR_SCOPE) && window.AtlasCalendar) {
       await AtlasCalendar.adopt({ token: access, expiresAt: Date.now() + (Number(params.get("expires_in")) || 3600) * 1000 }, claims.email).catch(() => {});
     }
     return session.user;
@@ -216,7 +223,7 @@
     const params = new URLSearchParams(new URL(back).hash.slice(1));
     const token = params.get("access_token");
     if (!token || params.get("state") !== state) throw new ApiError("Google said no: " + (params.get("error") || "no token"), 0, "google");
-    if (!String(params.get("scope") || "").split(" ").includes(scope)) throw new ApiError("Access wasn't allowed. Tick the box on Google's page.", 0, "scope");
+    if (!granted(params, scope)) throw new ApiError("Access wasn't allowed. Tick the box on Google's page.", 0, "scope");
     return { token, expiresAt: Date.now() + (Number(params.get("expires_in")) || 3600) * 1000 };
   }
 

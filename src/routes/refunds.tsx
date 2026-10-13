@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { DocPage } from "@/components/site/layout";
+import { seo } from "@/lib/seo";
 import { CONTACT_EMAIL } from "@/lib/site";
 
 export const Route = createFileRoute("/refunds")({
-  head: () => ({ meta: [{ title: "Refunds — Atlas" }] }),
+  head: () => seo({ path: "/refunds", title: "Refund policy — Atlas Pro", description: "How refunds work for Atlas Pro subscriptions bought through Paddle, and how to ask for one." }),
   component: Refunds,
 });
 

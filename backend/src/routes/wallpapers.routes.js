@@ -56,6 +56,15 @@ function previewFile(videos, full) {
     .sort((a, b) => a.width - b.width)[0] || null;
 }
 
+/* a full-HD copy, for screens that can't show 4K: the largest landscape
+   size up to 1920 wide below the full one (the extension keeps it instead
+   of the 4K file there — a fraction of the download and the decoding) */
+function hdFile(videos, full) {
+  return Object.values(videos || {})
+    .filter((f) => f && /^https:\/\//.test(f.url || "") && f.width >= f.height && f.width <= 1920 && f.width < full.width)
+    .sort((a, b) => b.width - a.width)[0] || null;
+}
+
 async function pixabayPage(q, page) {
   const params = new URLSearchParams({
     key: env.pixabay.key,
@@ -77,12 +86,14 @@ async function pixabayPage(q, page) {
       const thumb = file && ["small", "medium", "large"].map((k) => v.videos[k] && v.videos[k].thumbnail).find((t) => /^https:\/\//.test(t || ""));
       if (!file || !thumb) return null;
       const light = previewFile(v.videos, file);
+      const hd = hdFile(v.videos, file);
       return {
         id: String(v.id),
         source: "pixabay",
         thumb,
         video: file.url,
         preview: light ? light.url : "",
+        hd: hd ? hd.url : "",
         width: file.width,
         height: file.height,
         duration: v.duration || 0,
@@ -184,7 +195,7 @@ wallpapersRouter.get("/wallpapers/sources", (req, res) => {
 });
 
 /* GET /wallpapers/live?q=&page= -> { items: [{ id, source, thumb, video,
-   preview (a light clip to start on, or ""), width, height, duration,
+   preview (a light clip to start on, or ""), hd (a full-HD copy, or ""), width, height, duration,
    credit, creditUrl, link }], page, more, pro }.
    Pixabay's and WallpaperWaves' results take turns, and one source failing
    still gives the other's. No q = Pixabay's popular videos and

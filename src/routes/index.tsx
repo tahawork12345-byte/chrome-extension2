@@ -36,24 +36,67 @@ import {
   useNow,
   useTyped,
 } from "@/components/site/showcase";
-import { CONTACT_EMAIL, FALLBACK_PRICES, THEMES, fetchPlans, money } from "@/lib/site";
+import { seo } from "@/lib/seo";
+import { CONTACT_EMAIL, FALLBACK_PRICES, SITE_URL, THEMES, fetchPlans, money } from "@/lib/site";
+
+/* search engines read these first: the title and description carry the
+   phrases people search for (wallpaper extension, new tab, productivity) */
+const TITLE = "Atlas — Free Live Wallpaper & Productivity New Tab for Chrome";
+const DESCRIPTION =
+  "Atlas is a free Chrome new tab extension with live 4K & HD wallpapers, a custom productivity dashboard, focus timer, shortcuts and a minimal mode.";
+const KEYWORDS = [
+  "new tab extension",
+  "chrome new tab extension",
+  "best new tab extension",
+  "wallpaper chrome extension",
+  "chrome wallpaper extension",
+  "new tab wallpaper",
+  "live wallpaper new tab",
+  "4K wallpaper new tab",
+  "HD wallpaper new tab",
+  "chrome new tab background",
+  "custom new tab",
+  "customizable new tab",
+  "productivity new tab extension",
+  "new tab dashboard chrome",
+  "minimal new tab extension",
+  "focus new tab extension",
+  "free new tab wallpaper extension",
+  "wallpaper browser extension",
+].join(", ");
+
+/* tells Google what Atlas is, so results can show it as an app */
+const STRUCTURED_DATA = [
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Atlas",
+    url: SITE_URL,
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Atlas New Tab",
+    url: SITE_URL,
+    image: SITE_URL + "/media/shot-2.jpg",
+    description: DESCRIPTION,
+    keywords: KEYWORDS,
+    applicationCategory: "BrowserApplication",
+    operatingSystem: "Chrome",
+    offers: [
+      { "@type": "Offer", name: "Free", price: "0", priceCurrency: "USD" },
+      { "@type": "Offer", name: "Pro monthly", price: String(FALLBACK_PRICES.monthly.amount), priceCurrency: FALLBACK_PRICES.monthly.currency },
+      { "@type": "Offer", name: "Pro yearly", price: String(FALLBACK_PRICES.yearly.amount), priceCurrency: FALLBACK_PRICES.yearly.currency },
+    ],
+  },
+];
 
 export const Route = createFileRoute("/")({
   head: () => ({
-    meta: [
-      { title: "Atlas — a new tab worth opening" },
-      {
-        name: "description",
-        content:
-          "Atlas replaces Chrome's new tab with live 4K wallpapers, glass shortcut cards, a command center, focus timer, reminders, habits, a site blocker, translation and a quiet assistant. Free, with an optional Pro plan.",
-      },
-      { property: "og:title", content: "Atlas — a new tab worth opening" },
-      {
-        property: "og:description",
-        content: "Live wallpapers, shortcuts in glass cards and twenty small tools for Chrome's new tab.",
-      },
-      { property: "og:image", content: "/media/shot-2.jpg" },
-    ],
+    ...(({ meta, links }) => ({ meta: [...meta, { name: "keywords", content: KEYWORDS }], links }))(
+      seo({ path: "/", title: TITLE, description: DESCRIPTION }),
+    ),
+    scripts: [{ type: "application/ld+json", children: JSON.stringify([...STRUCTURED_DATA, FAQ_DATA]) }],
   }),
   component: Home,
 });
@@ -121,8 +164,8 @@ function Hero() {
             opening.
           </h1>
           <p className="lede rise" style={{ animationDelay: "200ms" }}>
-            Live 4K wallpapers, your sites in glass cards, a command center, focus timer, reminders, habits, a site
-            blocker, translation and a quiet assistant. One new tab, twenty small tools.
+            A free new tab extension for Chrome: live 4K wallpapers, your sites in glass cards, a command center, focus
+            timer, reminders, habits, a site blocker, translation and a quiet assistant. One new tab, twenty small tools.
           </p>
           <div className="hero-ctas rise" style={{ animationDelay: "280ms" }}>
             <InstallButton />
@@ -164,7 +207,7 @@ function WallTile({ id, name }: { id: string; name: string }) {
   const [hover, setHover] = useState(false);
   return (
     <figure className="wall" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-      <img src={`/media/wp/${id}.jpg`} alt="" loading="lazy" />
+      <img src={`/media/wp/${id}.jpg`} alt={`${name} — live 4K wallpaper for the Chrome new tab`} loading="lazy" />
       {hover && <video src={`/media/wp/${id}.mp4`} muted loop playsInline autoPlay />}
       <figcaption>
         <span className="live-dot" />
@@ -733,6 +776,9 @@ function Pricing() {
 
 /* ---------- FAQ ---------- */
 const FAQ = [
+  ["What is Atlas New Tab?", "Atlas is a free new tab extension for Chrome. It replaces the blank new tab page with live 4K and HD wallpapers, a customizable dashboard of your favourite sites, and productivity tools: a focus timer, reminders, habits, notes and goals, and a site blocker. It also works in Edge, Brave and other Chromium browsers."],
+  ["How do I change the Chrome new tab background?", "Install Atlas and open a new tab. In Customize › Background, pick one of the built-in live wallpapers, browse the online library of 4K stills and live videos, or upload your own image or .mp4."],
+  ["Can I make the new tab minimal?", "Yes. Press Z for the Zen clock, just the time over your wallpaper, or M for minimal mode, which hides everything but the search bar."],
   ["Is Atlas really free?", "Yes. The free version has no time limit and no ads. Pro adds extra themes, unlimited wallpapers, sync, the private space and a few power tools, and it pays for the servers."],
   ["What does Atlas know about my browsing?", "Your shortcuts, settings and screen-time stats stay in your browser. Stats only note which site is in front and for how long (the domain, never the page), and they're only uploaded if you turn on the weekly email. The privacy policy lists everything that leaves your computer."],
   ["Do reminders and the focus timer work with no new tab open?", "Yes. They run in the extension's background worker, so a reminder rings and a focus session ends on time wherever you are in Chrome. A reminder missed while Chrome was closed rings when it opens again (up to 12 hours late)."],
@@ -742,6 +788,13 @@ const FAQ = [
   ["Do I need an account?", "Only for Pro, sync and backup. Everything else works signed out. Signing in uses your Google account; there's no password to remember."],
   ["Can I use my own wallpaper?", "Yes. Upload any image or .mp4 from Customize › Background. It stays on your computer."],
 ];
+
+/* the same questions for search engines */
+const FAQ_DATA = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQ.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })),
+};
 
 function Faq() {
   return (

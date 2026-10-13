@@ -43,7 +43,7 @@
       customId: 0,
       customName: "",
       /* the online library's pick (library.js): kind "image" | "video" */
-      online: { id: "", kind: "", src: "", preview: "", thumb: "", source: "", credit: "", creditUrl: "", link: "" },
+      online: { id: "", kind: "", src: "", preview: "", hd: "", thumb: "", source: "", credit: "", creditUrl: "", link: "" },
       brightness: 100,
       saturate: 100,
       blur: 0,
@@ -2367,7 +2367,7 @@
         b.classList.toggle("is-loading", b.dataset.key === it.key);
       });
       set("background.online", {
-        id: it.key, kind: it.kind, src: it.src, preview: it.preview || "", thumb: it.thumb, source: it.source,
+        id: it.key, kind: it.kind, src: it.src, preview: it.preview || "", hd: it.hd || "", thumb: it.thumb, source: it.source,
         credit: it.credit, creditUrl: it.creditUrl, link: it.link,
       });
       set("background.mode", "online");
@@ -2395,7 +2395,7 @@
           (libPending === it.key ? " is-loading" : ""),
         "data-key": it.key,
       },
-      h("img", { src: it.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }),
+      h("img", { src: it.thumb, alt: "", loading: "lazy", decoding: "async", referrerpolicy: "no-referrer" }),
       h("span", { class: "cz-pwp-name", text: size }),
       badge ? h("span", { class: "cz-pwp-new", text: badge }) : null,
       locked ? h("span", { class: "cz-pwp-lock", "aria-hidden": "true", text: "🔒" }) : null,
@@ -2455,7 +2455,8 @@
         grid.querySelectorAll(".cz-pwp").forEach((c) => paintFav(c, L.isFav(c.dataset.key)));
       }
       const errors = [st.still.error, st.live.error].filter(Boolean);
-      status.textContent = st.loading ? "Loading…"
+      /* the kept cards from last time are up: refresh quietly */
+      status.textContent = st.loading ? (st.stale ? "" : "Loading…")
         : errors.length ? errors.join(" ")
         : !st.items.length ? "Nothing found. Try another search." : "";
       status.hidden = !status.textContent;

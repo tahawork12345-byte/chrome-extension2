@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Atlas New Tab - Taha",
+  "name": "Atlas New Tab",
   "version": "1.0.1",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvAGlIE702LmBeGKfExQ5LUDkOxkUZWmxoPsDPwYCPP92vNeDd2Z1CBtUZbFuf8Z4rBBAa4+Os9nF6PYSOOwNmU4yyDUBPUrAKcOqdM9mx2s+UqpzCYv69HOvVBNwgwrgcFkRUcjSwg9vyCVlvOmn+of5UOZA2EuDXDUSaqxVDZozvwMk9QMLfMnYqT6SzrijcFMzkJWm2cYVKvPG1hu4bpEa9RKR3inGGJBGsog9iVoqk7pl93kVyf7wp48+PwJ7oAZ9ibzZCTeGN4M4ijEKYPvjftOqhvA0ITCXJ8mNj5e83E6oHvupUmCDAAEh69UZloYhVmRkkkYpu/USWeEo1QIDAQAB",
   "description": "A calm, editorial new tab with cinematic live wallpapers, shortcut cards, search and a compact assistant.",
   "permissions": ["storage", "scripting", "alarms", "notifications", "offscreen", "identity", "declarativeNetRequestWithHostAccess", "idle"],
   "optional_permissions": ["management"],

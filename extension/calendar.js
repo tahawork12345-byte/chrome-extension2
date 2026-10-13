@@ -1,7 +1,8 @@
 /* ATLAS NEW TAB — calendar agenda (Atlas Pro)
    The user's Google Calendar, read-only: today and the next 7 days, from
    every calendar they have ticked in Google Calendar. Connecting asks
-   Google for the calendar.readonly scope through the sign-in client
+   Google for the calendar.events.readonly and calendar.calendarlist.readonly
+   scopes through the sign-in client
    (AtlasAccount.googleToken); the token lasts an hour and is renewed
    without a window (prompt=none) while Google allows it, otherwise the
    view asks to reconnect.
@@ -18,7 +19,7 @@
   const Acc = window.AtlasAccount;
   if (!AS || !Acc) return;
 
-  const SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+  const SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.calendarlist.readonly";
   const GAPI = "https://www.googleapis.com/calendar/v3";
   const LINK = "cal:link";     // { token, expiresAt, email }
   const EVENTS = "cal:events"; // { at, items }
